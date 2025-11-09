@@ -1,0 +1,27 @@
+# Banco de dados
+*.db
+*.db-journal
+
+# Arquivos de configuração sensíveis
+.salt
+wallet.enc
+*.enc
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+main.py

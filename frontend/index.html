@@ -2,215 +2,534 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Gerenciador de Senhas - Frontend Simples</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerenciador de Senhas</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f5f5f5;
+    * {
       margin: 0;
       padding: 0;
+      box-sizing: border-box;
     }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #1a202c;
+      line-height: 1.6;
+    }
+
     header {
-      background: #222;
-      color: #fff;
-      padding: 10px 20px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 1.25rem 2rem;
+      box-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
+
     header h1 {
-      margin: 0;
-      font-size: 20px;
+      font-size: 1.5rem;
+      font-weight: 600;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
-    main {
-      max-width: 1000px;
-      margin: 20px auto;
-      background: #fff;
-      padding: 20px;
+
+    #status {
+      font-size: 0.875rem;
+      font-weight: 500;
+      padding: 0.5rem 1rem;
       border-radius: 8px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
-    .section {
-      margin-bottom: 25px;
+
+    #status.ok {
+      color: #047857;
+      background: #d1fae5;
     }
-    .section h2 {
-      margin-top: 0;
-      font-size: 18px;
+
+    #status.error {
+      color: #dc2626;
+      background: #fee2e2;
     }
+
+    main {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 10px 20px rgba(0, 0, 0, 0.1);
+      margin-bottom: 2rem;
+    }
+
+    .login-card {
+      max-width: 450px;
+      margin: 4rem auto;
+    }
+
+    .card h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      color: #1a202c;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
     label {
       display: block;
-      margin: 5px 0 2px;
-      font-size: 14px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      color: #4a5568;
     }
+
     input[type="text"],
     input[type="password"],
     input[type="number"],
     input[type="datetime-local"] {
       width: 100%;
-      padding: 6px 8px;
-      margin-bottom: 8px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      box-sizing: border-box;
+      padding: 0.75rem 1rem;
+      border: 2px solid #e2e8f0;
+      border-radius: 10px;
+      font-size: 0.938rem;
+      background: #f8fafc;
     }
+
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+      background: white;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
     .checkbox-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 10px;
-      font-size: 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
     }
-    .checkbox-group label {
+
+    .checkbox-label {
       display: flex;
       align-items: center;
-      margin: 0;
-    }
-    .checkbox-group input {
-      margin-right: 4px;
-    }
-    button {
-      padding: 6px 12px;
-      border-radius: 4px;
-      border: none;
+      font-size: 0.875rem;
+      color: #4a5568;
       cursor: pointer;
-      font-size: 14px;
+      padding: 0.5rem;
+      border-radius: 8px;
     }
+
+    .checkbox-label:hover {
+      background: #f7fafc;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-right: 0.5rem;
+      cursor: pointer;
+      accent-color: #667eea;
+    }
+
+    button {
+      padding: 0.75rem 1.5rem;
+      border-radius: 10px;
+      border: none;
+      font-size: 0.938rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
     button.primary {
-      background: #007bff;
-      color: #fff;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
     }
-    button.danger {
-      background: #dc3545;
-      color: #fff;
+
+    button.primary:hover {
+      box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
     }
+
     button.secondary {
-      background: #6c757d;
-      color: #fff;
+      background: #718096;
+      color: white;
     }
+
+    button.secondary:hover {
+      background: #4a5568;
+    }
+
+    button.danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    button.danger:hover {
+      background: #dc2626;
+    }
+
     button:disabled {
-      opacity: 0.6;
-      cursor: default;
+      opacity: 0.5;
+      cursor: not-allowed;
     }
-    #status {
-      font-size: 13px;
-      margin-left: 10px;
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
     }
-    #status.ok {
-      color: #28a745;
+
+    .table-container {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
     }
-    #status.error {
-      color: #dc3545;
-    }
+
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 0.875rem;
     }
-    th, td {
-      border: 1px solid #ddd;
-      padding: 6px;
-      text-align: left;
-    }
+
     th {
-      background: #f0f0f0;
+      background: #f8fafc;
+      padding: 1rem;
+      text-align: left;
+      font-weight: 600;
+      color: #4a5568;
+      border-bottom: 2px solid #e2e8f0;
     }
+
+    td {
+      padding: 1rem;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tbody tr {
+    }
+
+    tbody tr:hover {
+      background: #f8fafc;
+    }
+
     .password-value {
-      font-family: "Courier New", monospace;
-      background: #f8f9fa;
-      padding: 4px 6px;
-      border-radius: 4px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
       display: inline-block;
-      margin-top: 4px;
+      margin-top: 0.5rem;
+      border: 1px solid #e2e8f0;
+      font-size: 0.938rem;
+      letter-spacing: 0.5px;
     }
+
     .small-text {
-      font-size: 12px;
-      color: #555;
+      font-size: 0.813rem;
+      color: #718096;
     }
+
     .row-actions {
       display: flex;
-      gap: 4px;
+      gap: 0.5rem;
       flex-wrap: wrap;
     }
+
+    .row-actions button {
+      padding: 0.5rem 1rem;
+      font-size: 0.813rem;
+    }
+
     .hidden {
       display: none;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge.weak {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .badge.medium {
+      background: #fef3c7;
+      color: #d97706;
+    }
+
+    .badge.strong {
+      background: #d1fae5;
+      color: #047857;
+    }
+
+    .form-section {
+      border: 2px solid #f1f5f9;
+      border-radius: 12px;
+      padding: 1.5rem;
+      background: #fafbfc;
+      margin-bottom: 2rem;
+    }
+
+    .password-row td {
+      background: #f8fafc;
+      padding: 1.5rem;
+    }
+
+    .copy-btn {
+      margin-left: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.813rem;
+      background: #10b981;
+      color: white;
+    }
+
+    .copy-btn:hover {
+      background: #059669;
+    }
+
+    .copy-btn.copied {
+      background: #6366f1;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #94a3b8;
+    }
+
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 1rem;
+      opacity: 0.3;
+    }
+
+    .search-box {
+      margin-bottom: 1.5rem;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 0.75rem 1rem 0.75rem 2.5rem;
+      background: #f8fafc url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23718096' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'%3E%3C/circle%3E%3Cpath d='m21 21-4.35-4.35'%3E%3C/path%3E%3C/svg%3E") no-repeat 0.75rem center;
+    }
+
+    .password-strength-meter {
+      height: 6px;
+      background: #e2e8f0;
+      border-radius: 3px;
+      margin-top: 0.5rem;
+      overflow: hidden;
+    }
+
+    .password-strength-bar {
+      height: 100%;
+      border-radius: 3px;
+    }
+
+    .show-password-btn {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      padding: 0.5rem;
+      cursor: pointer;
+      color: #718096;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .show-password-btn:hover {
+      color: #4a5568;
+    }
+
+    .password-input-wrapper {
+      position: relative;
+    }
+
+    @media (max-width: 768px) {
+      header {
+        padding: 1rem;
+      }
+
+      .header-content h1 {
+        font-size: 1.25rem;
+      }
+
+      .card {
+        padding: 1.5rem;
+      }
+
+      .checkbox-group {
+        grid-template-columns: 1fr;
+      }
+
+      .table-container {
+        font-size: 0.813rem;
+      }
+
+      th, td {
+        padding: 0.75rem 0.5rem;
+      }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>Gerenciador de Senhas</h1>
-    <div>
+    <div class="header-content">
+      <h1>🔐 Gerenciador de Senhas</h1>
       <span id="status"></span>
     </div>
   </header>
 
   <main>
     <!-- Login -->
-    <section id="login-section" class="section">
-      <h2>Login com Senha Mestra</h2>
-      <label for="master-password">Senha mestra</label>
-      <input type="password" id="master-password" placeholder="Digite a senha mestra">
-      <button class="primary" id="btn-login">Login</button>
+    <section id="login-section">
+      <div class="card login-card">
+        <h2>Login com Senha Mestra</h2>
+        <div class="form-group">
+          <label for="master-password">Senha mestra</label>
+          <div class="password-input-wrapper">
+            <input type="password" id="master-password" placeholder="Digite sua senha mestra">
+            <button type="button" class="show-password-btn" id="toggle-master-password" title="Mostrar/ocultar senha">Mostrar</button>
+          </div>
+        </div>
+        <button class="primary" id="btn-login" style="width: 100%;">Entrar</button>
+      </div>
     </section>
 
     <!-- App -->
-    <section id="app-section" class="section hidden">
-      <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h2>Bem-vindo!</h2>
-        <button class="secondary" id="btn-logout">Logout</button>
-      </div>
+    <section id="app-section" class="hidden">
+      <div class="card">
+        <div class="top-bar">
+          <h2>Bem-vindo! 👋</h2>
+          <button class="secondary" id="btn-logout">Sair</button>
+        </div>
 
-      <!-- Form de criação de senha -->
-      <div class="section" style="border:1px solid #eee; padding:15px; border-radius:6px;">
-        <h2>Criar nova senha</h2>
-        <form id="form-create-password">
-          <label for="title">Título</label>
-          <input type="text" id="title" required placeholder="Ex.: Gmail pessoal">
+        <!-- Form de criação de senha -->
+        <div class="form-section">
+          <h2 style="font-size: 1.25rem; margin-bottom: 1rem;">✨ Criar nova senha</h2>
+          <form id="form-create-password">
+            <div class="form-group">
+              <label for="title">Título</label>
+              <input type="text" id="title" required placeholder="Ex.: Gmail pessoal">
+            </div>
 
-          <label for="site">Site / Serviço</label>
-          <input type="text" id="site" required placeholder="Ex.: https://mail.google.com">
+            <div class="form-group">
+              <label for="site">Site / Serviço</label>
+              <input type="text" id="site" required placeholder="Ex.: https://mail.google.com">
+            </div>
 
-          <label for="length">Tamanho da senha (se for gerada)</label>
-          <input type="number" id="length" min="4" max="128" value="16">
+            <div class="form-group">
+              <label for="length">Tamanho da senha (se for gerada)</label>
+              <input type="number" id="length" min="4" max="128" value="16">
+            </div>
 
-          <div class="checkbox-group">
-            <label><input type="checkbox" id="use-uppercase" checked>Maiúsculas (A-Z)</label>
-            <label><input type="checkbox" id="use-lowercase" checked>Minúsculas (a-z)</label>
-            <label><input type="checkbox" id="use-digits" checked>Dígitos (0-9)</label>
-            <label><input type="checkbox" id="use-special" checked>Especiais (!@#$...)</label>
-          </div>
+            <div class="form-group">
+              <label>Caracteres incluídos</label>
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-uppercase" checked>
+                  Maiúsculas (A-Z)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-lowercase" checked>
+                  Minúsculas (a-z)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-digits" checked>
+                  Dígitos (0-9)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-special" checked>
+                  Especiais (!@#$...)
+                </label>
+              </div>
+            </div>
 
-          <label for="expiration-date">Data de expiração (opcional)</label>
-          <input type="datetime-local" id="expiration-date">
+            <div class="form-group">
+              <label for="expiration-date">Data de expiração (opcional)</label>
+              <input type="datetime-local" id="expiration-date">
+            </div>
 
-          <label for="custom-password">Senha customizada (opcional – se preencher, não será gerada)</label>
-          <input type="text" id="custom-password" placeholder="Deixe vazio para gerar automaticamente">
+            <div class="form-group">
+              <label for="custom-password">Senha customizada (opcional)</label>
+              <input type="text" id="custom-password" placeholder="Deixe vazio para gerar automaticamente">
+              <div class="password-strength-meter">
+                <div class="password-strength-bar" id="password-strength-bar"></div>
+              </div>
+              <div id="password-strength-text" class="small-text" style="margin-top: 0.25rem;"></div>
+            </div>
 
-          <button type="submit" class="primary">Criar senha</button>
-        </form>
+            <button type="submit" class="primary">Criar senha</button>
+          </form>
+        </div>
       </div>
 
       <!-- Lista de senhas -->
-      <div class="section">
-        <h2>Senhas salvas</h2>
-        <p class="small-text">
-          * A senha em si só é mostrada quando você clica em <strong>Ver</strong>.
+      <div class="card">
+        <h2>🔑 Senhas salvas</h2>
+        <p class="small-text" style="margin-bottom: 1.5rem;">
+          A senha descriptografada só é mostrada quando você clica em <strong>Ver</strong>.
         </p>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Título</th>
-              <th>Site</th>
-              <th>Entropia</th>
-              <th>Expira em</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="passwords-table-body">
-            <!-- Linhas preenchidas via JS -->
-          </tbody>
-        </table>
+        
+        <div class="search-box">
+          <input type="text" id="search-passwords" placeholder="Buscar senhas por título ou site...">
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Título</th>
+                <th>Site</th>
+                <th>Segurança</th>
+                <th>Expira em</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="passwords-table-body">
+              <!-- Linhas preenchidas via JS -->
+            </tbody>
+          </table>
+          <div id="empty-state" class="empty-state hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <p>Nenhuma senha encontrada</p>
+            <p class="small-text">Crie sua primeira senha usando o formulário acima</p>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -231,6 +550,13 @@
 
     const formCreatePassword = document.getElementById('form-create-password');
     const tbodyPasswords = document.getElementById('passwords-table-body');
+    const searchInput = document.getElementById('search-passwords');
+    const emptyState = document.getElementById('empty-state');
+    const customPasswordInput = document.getElementById('custom-password');
+    const passwordStrengthBar = document.getElementById('password-strength-bar');
+    const passwordStrengthText = document.getElementById('password-strength-text');
+
+    let allPasswords = [];
 
     // ===== Helpers =====
     function setStatus(message, type = "ok") {
@@ -249,6 +575,8 @@
       appSection.classList.add('hidden');
       loginSection.classList.remove('hidden');
       tbodyPasswords.innerHTML = "";
+      allPasswords = [];
+      searchInput.value = "";
     }
 
     async function apiRequest(path, options = {}) {
@@ -264,13 +592,130 @@
       if (!isoString) return "-";
       try {
         const d = new Date(isoString);
-        return d.toLocaleString();
+        return d.toLocaleString('pt-BR');
       } catch (e) {
         return isoString;
       }
     }
 
+    function getEntropyBadge(level) {
+      const levelLower = level.toLowerCase();
+      if (levelLower.includes('fraca') || levelLower.includes('weak')) {
+        return 'weak';
+      } else if (levelLower.includes('média') || levelLower.includes('medium') || levelLower.includes('moderate')) {
+        return 'medium';
+      } else {
+        return 'strong';
+      }
+    }
+
+    function calculatePasswordStrength(password) {
+      if (!password) return { strength: 0, text: '', color: '' };
+      
+      let strength = 0;
+      
+      // Length
+      if (password.length >= 8) strength += 1;
+      if (password.length >= 12) strength += 1;
+      if (password.length >= 16) strength += 1;
+      
+      // Character variety
+      if (/[a-z]/.test(password)) strength += 1;
+      if (/[A-Z]/.test(password)) strength += 1;
+      if (/[0-9]/.test(password)) strength += 1;
+      if (/[^a-zA-Z0-9]/.test(password)) strength += 1;
+      
+      // Return normalized strength
+      const normalized = Math.min(strength / 7, 1);
+      let text = '';
+      let color = '';
+      
+      if (normalized < 0.3) {
+        text = 'Muito fraca';
+        color = '#ef4444';
+      } else if (normalized < 0.5) {
+        text = 'Fraca';
+        color = '#f59e0b';
+      } else if (normalized < 0.7) {
+        text = 'Média';
+        color = '#eab308';
+      } else if (normalized < 0.9) {
+        text = 'Forte';
+        color = '#10b981';
+      } else {
+        text = 'Muito forte';
+        color = '#059669';
+      }
+      
+      return { strength: normalized * 100, text, color };
+    }
+
+    async function copyToClipboard(text, button) {
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalText = button.textContent;
+        button.textContent = '✓ Copiado!';
+        button.classList.add('copied');
+        setTimeout(() => {
+          button.textContent = originalText;
+          button.classList.remove('copied');
+        }, 2000);
+      } catch (e) {
+        console.error('Erro ao copiar:', e);
+        setStatus('Erro ao copiar para área de transferência', 'error');
+      }
+    }
+
+    function updateEmptyState() {
+      const hasRows = tbodyPasswords.children.length > 0;
+      if (hasRows) {
+        emptyState.classList.add('hidden');
+      } else {
+        emptyState.classList.remove('hidden');
+      }
+    }
+
+    function filterPasswords() {
+      const searchTerm = searchInput.value.toLowerCase().trim();
+      
+      if (!searchTerm) {
+        allPasswords.forEach(entry => addPasswordRow(entry));
+        updateEmptyState();
+        return;
+      }
+      
+      tbodyPasswords.innerHTML = '';
+      
+      const filtered = allPasswords.filter(entry => 
+        entry.title.toLowerCase().includes(searchTerm) ||
+        entry.site.toLowerCase().includes(searchTerm)
+      );
+      
+      filtered.forEach(entry => addPasswordRow(entry));
+      updateEmptyState();
+    }
+
     // ===== Login / Logout =====
+    // Toggle password visibility
+    document.getElementById('toggle-master-password').addEventListener('click', () => {
+      const input = masterPasswordInput;
+      const button = document.getElementById('toggle-master-password');
+      if (input.type === 'password') {
+        input.type = 'text';
+        button.textContent = 'Ocultar';
+      } else {
+        input.type = 'password';
+        button.textContent = 'Mostrar';
+      }
+    });
+
+    // Enter key on master password
+    masterPasswordInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        btnLogin.click();
+      }
+    });
+
     btnLogin.addEventListener('click', async () => {
       const masterPassword = masterPasswordInput.value.trim();
       if (!masterPassword) {
@@ -333,6 +778,7 @@
 
       setStatus("Carregando senhas...");
       tbodyPasswords.innerHTML = "";
+      allPasswords = [];
 
       try {
         const resp = await apiRequest("/passwords", {
@@ -349,11 +795,14 @@
           throw new Error("Resposta inesperada do servidor.");
         }
 
+        allPasswords = data;
         data.forEach(entry => addPasswordRow(entry));
+        updateEmptyState();
         setStatus("Senhas carregadas.");
       } catch (e) {
         console.error(e);
         setStatus("Erro ao carregar senhas: " + e.message, "error");
+        updateEmptyState();
       }
     }
 
@@ -371,7 +820,11 @@
       tdSite.textContent = entry.site;
 
       const tdEntropy = document.createElement('td');
-      tdEntropy.innerHTML = `${entry.entropy} bits<br><span class="small-text">${entry.entropy_level}</span>`;
+      const badgeClass = getEntropyBadge(entry.entropy_level);
+      tdEntropy.innerHTML = `
+        <div>${entry.entropy} bits</div>
+        <span class="badge ${badgeClass}">${entry.entropy_level}</span>
+      `;
 
       const tdExp = document.createElement('td');
       tdExp.textContent = formatDate(entry.expiration_date);
@@ -434,7 +887,10 @@
         td.innerHTML = `
           <div>
             <strong>Senha descriptografada:</strong>
-            <div class="password-value">${data.password}</div>
+            <div class="password-value">
+              ${data.password}
+              <button class="copy-btn" onclick="copyToClipboard('${data.password.replace(/'/g, "\\'")}', this)">📋 Copiar</button>
+            </div>
           </div>
         `;
 
@@ -448,35 +904,39 @@
     }
 
     async function deletePassword(id, row) {
-  if (!confirm("Tem certeza que deseja excluir esta senha?")) {
-    return;
-  }
+      if (!confirm("Tem certeza que deseja excluir esta senha?")) {
+        return;
+      }
 
-  try {
-    setStatus("Excluindo senha...");
-    const resp = await apiRequest(`/passwords/${id}`, {
-      method: "DELETE"
-    });
+      try {
+        setStatus("Excluindo senha...");
+        const resp = await apiRequest(`/passwords/${id}`, {
+          method: "DELETE"
+        });
 
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.detail || "Erro ao deletar senha");
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Erro ao deletar senha");
+        }
+
+        // Remove from local array
+        allPasswords = allPasswords.filter(p => p.id !== id);
+
+        row.remove();
+        const extra = row.nextElementSibling;
+        if (extra && extra.classList.contains("password-row")) {
+          extra.remove();
+        }
+
+        updateEmptyState();
+
+        const data = await resp.json().catch(() => null);
+        setStatus(data?.message || "Senha deletada com sucesso.");
+      } catch (e) {
+        console.error(e);
+        setStatus("Erro ao deletar senha: " + e.message, "error");
+      }
     }
-
-    row.remove();
-    const extra = row.nextElementSibling;
-    if (extra && extra.classList.contains("password-row")) {
-      extra.remove();
-    }
-
-    const data = await resp.json().catch(() => null);
-    setStatus(data?.message || "Senha deletada com sucesso.");
-  } catch (e) {
-    console.error(e);
-    setStatus("Erro ao deletar senha: " + e.message, "error");
-  }
-}
-
 
     // ===== Form de criação de senha =====
     formCreatePassword.addEventListener('submit', async (event) => {
@@ -523,14 +983,17 @@
         }
 
         const data = await resp.json();
-        // adiciona a nova senha na tabela
         addPasswordRow(data);
+        allPasswords.push(data);
         formCreatePassword.reset();
         document.getElementById('length').value = 16;
         document.getElementById('use-uppercase').checked = true;
         document.getElementById('use-lowercase').checked = true;
         document.getElementById('use-digits').checked = true;
         document.getElementById('use-special').checked = true;
+        passwordStrengthBar.style.width = '0%';
+        passwordStrengthText.textContent = '';
+        updateEmptyState();
         setStatus("Senha criada com sucesso.");
       } catch (e) {
         console.error(e);
@@ -538,9 +1001,26 @@
       }
     });
 
+    // Password strength indicator
+    customPasswordInput.addEventListener('input', (e) => {
+      const password = e.target.value;
+      const result = calculatePasswordStrength(password);
+      
+      passwordStrengthBar.style.width = result.strength + '%';
+      passwordStrengthBar.style.backgroundColor = result.color;
+      passwordStrengthText.textContent = result.text;
+      passwordStrengthText.style.color = result.color;
+    });
+
+    // Search functionality
+    searchInput.addEventListener('input', filterPasswords);
+
+    // Make copyToClipboard available globally
+    window.copyToClipboard = copyToClipboard;
+
     // ===== Inicial =====
     setStatus("Aguardando login.");
+    updateEmptyState();
   </script>
 </body>
 </html>
-

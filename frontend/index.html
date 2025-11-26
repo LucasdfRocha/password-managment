@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Gerenciador de Senhas - Frontend Simples</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: #222;
+      color: #fff;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    main {
+      max-width: 1000px;
+      margin: 20px auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .section {
+      margin-bottom: 25px;
+    }
+    .section h2 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+    label {
+      display: block;
+      margin: 5px 0 2px;
+      font-size: 14px;
+    }
+    input[type="text"],
+    input[type="password"],
+    input[type="number"],
+    input[type="datetime-local"] {
+      width: 100%;
+      padding: 6px 8px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    .checkbox-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      margin: 0;
+    }
+    .checkbox-group input {
+      margin-right: 4px;
+    }
+    button {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button.primary {
+      background: #007bff;
+      color: #fff;
+    }
+    button.danger {
+      background: #dc3545;
+      color: #fff;
+    }
+    button.secondary {
+      background: #6c757d;
+      color: #fff;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    #status {
+      font-size: 13px;
+      margin-left: 10px;
+    }
+    #status.ok {
+      color: #28a745;
+    }
+    #status.error {
+      color: #dc3545;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      text-align: left;
+    }
+    th {
+      background: #f0f0f0;
+    }
+    .password-value {
+      font-family: "Courier New", monospace;
+      background: #f8f9fa;
+      padding: 4px 6px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-top: 4px;
+    }
+    .small-text {
+      font-size: 12px;
+      color: #555;
+    }
+    .row-actions {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Gerenciador de Senhas</h1>
+    <div>
+      <span id="status"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Login -->
+    <section id="login-section" class="section">
+      <h2>Login com Senha Mestra</h2>
+      <label for="master-password">Senha mestra</label>
+      <input type="password" id="master-password" placeholder="Digite a senha mestra">
+      <button class="primary" id="btn-login">Login</button>
+    </section>
+
+    <!-- App -->
+    <section id="app-section" class="section hidden">
+      <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h2>Bem-vindo!</h2>
+        <button class="secondary" id="btn-logout">Logout</button>
+      </div>
+
+      <!-- Form de criação de senha -->
+      <div class="section" style="border:1px solid #eee; padding:15px; border-radius:6px;">
+        <h2>Criar nova senha</h2>
+        <form id="form-create-password">
+          <label for="title">Título</label>
+          <input type="text" id="title" required placeholder="Ex.: Gmail pessoal">
+
+          <label for="site">Site / Serviço</label>
+          <input type="text" id="site" required placeholder="Ex.: https://mail.google.com">
+
+          <label for="length">Tamanho da senha (se for gerada)</label>
+          <input type="number" id="length" min="4" max="128" value="16">
+
+          <div class="checkbox-group">
+            <label><input type="checkbox" id="use-uppercase" checked>Maiúsculas (A-Z)</label>
+            <label><input type="checkbox" id="use-lowercase" checked>Minúsculas (a-z)</label>
+            <label><input type="checkbox" id="use-digits" checked>Dígitos (0-9)</label>
+            <label><input type="checkbox" id="use-special" checked>Especiais (!@#$...)</label>
+          </div>
+
+          <label for="expiration-date">Data de expiração (opcional)</label>
+          <input type="datetime-local" id="expiration-date">
+
+          <label for="custom-password">Senha customizada (opcional – se preencher, não será gerada)</label>
+          <input type="text" id="custom-password" placeholder="Deixe vazio para gerar automaticamente">
+
+          <button type="submit" class="primary">Criar senha</button>
+        </form>
+      </div>
+
+      <!-- Lista de senhas -->
+      <div class="section">
+        <h2>Senhas salvas</h2>
+        <p class="small-text">
+          * A senha em si só é mostrada quando você clica em <strong>Ver</strong>.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Título</th>
+              <th>Site</th>
+              <th>Entropia</th>
+              <th>Expira em</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="passwords-table-body">
+            <!-- Linhas preenchidas via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ===== Configuração =====
+    const API_BASE = "http://localhost:8000/api";
+
+    let sessionToken = null;
+
+    const statusEl = document.getElementById('status');
+    const loginSection = document.getElementById('login-section');
+    const appSection = document.getElementById('app-section');
+
+    const masterPasswordInput = document.getElementById('master-password');
+    const btnLogin = document.getElementById('btn-login');
+    const btnLogout = document.getElementById('btn-logout');
+
+    const formCreatePassword = document.getElementById('form-create-password');
+    const tbodyPasswords = document.getElementById('passwords-table-body');
+
+    // ===== Helpers =====
+    function setStatus(message, type = "ok") {
+      statusEl.textContent = message;
+      statusEl.className = "";
+      if (type === "ok") statusEl.classList.add("ok");
+      if (type === "error") statusEl.classList.add("error");
+    }
+
+    function showApp() {
+      loginSection.classList.add('hidden');
+      appSection.classList.remove('hidden');
+    }
+
+    function showLogin() {
+      appSection.classList.add('hidden');
+      loginSection.classList.remove('hidden');
+      tbodyPasswords.innerHTML = "";
+    }
+
+    async function apiRequest(path, options = {}) {
+      const url = API_BASE + path;
+      const headers = options.headers || {};
+      if (sessionToken) {
+        headers['X-Session-Token'] = sessionToken;
+      }
+      return fetch(url, { ...options, headers });
+    }
+
+    function formatDate(isoString) {
+      if (!isoString) return "-";
+      try {
+        const d = new Date(isoString);
+        return d.toLocaleString();
+      } catch (e) {
+        return isoString;
+      }
+    }
+
+    // ===== Login / Logout =====
+    btnLogin.addEventListener('click', async () => {
+      const masterPassword = masterPasswordInput.value.trim();
+      if (!masterPassword) {
+        setStatus("Digite a senha mestra.", "error");
+        return;
+      }
+
+      btnLogin.disabled = true;
+      setStatus("Fazendo login...");
+
+      try {
+        const resp = await fetch(API_BASE + "/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ master_password: masterPassword })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Falha no login");
+        }
+
+        const data = await resp.json();
+        sessionToken = data.token;
+        setStatus("Login realizado com sucesso.");
+        masterPasswordInput.value = "";
+        showApp();
+        await loadPasswords();
+      } catch (e) {
+        console.error(e);
+        setStatus("Erro no login: " + e.message, "error");
+      } finally {
+        btnLogin.disabled = false;
+      }
+    });
+
+    btnLogout.addEventListener('click', async () => {
+      if (!sessionToken) {
+        showLogin();
+        setStatus("Sessão encerrada.");
+        return;
+      }
+
+      try {
+        await apiRequest("/auth/logout", {
+          method: "POST"
+        });
+      } catch (e) {
+        console.warn("Erro no logout (ignorado):", e);
+      } finally {
+        sessionToken = null;
+        showLogin();
+        setStatus("Sessão encerrada.");
+      }
+    });
+
+    // ===== CRUD de Senhas =====
+    async function loadPasswords() {
+      if (!sessionToken) return;
+
+      setStatus("Carregando senhas...");
+      tbodyPasswords.innerHTML = "";
+
+      try {
+        const resp = await apiRequest("/passwords", {
+          method: "GET"
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Erro ao listar senhas");
+        }
+
+        const data = await resp.json();
+        if (!Array.isArray(data)) {
+          throw new Error("Resposta inesperada do servidor.");
+        }
+
+        data.forEach(entry => addPasswordRow(entry));
+        setStatus("Senhas carregadas.");
+      } catch (e) {
+        console.error(e);
+        setStatus("Erro ao carregar senhas: " + e.message, "error");
+      }
+    }
+
+    function addPasswordRow(entry) {
+      const tr = document.createElement('tr');
+      tr.dataset.id = entry.id;
+
+      const tdId = document.createElement('td');
+      tdId.textContent = entry.id;
+
+      const tdTitle = document.createElement('td');
+      tdTitle.textContent = entry.title;
+
+      const tdSite = document.createElement('td');
+      tdSite.textContent = entry.site;
+
+      const tdEntropy = document.createElement('td');
+      tdEntropy.innerHTML = `${entry.entropy} bits<br><span class="small-text">${entry.entropy_level}</span>`;
+
+      const tdExp = document.createElement('td');
+      tdExp.textContent = formatDate(entry.expiration_date);
+
+      const tdActions = document.createElement('td');
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = "row-actions";
+
+      const btnView = document.createElement('button');
+      btnView.textContent = "Ver";
+      btnView.className = "secondary";
+      btnView.addEventListener('click', () => viewPassword(entry.id, tr));
+
+      const btnDelete = document.createElement('button');
+      btnDelete.textContent = "Excluir";
+      btnDelete.className = "danger";
+      btnDelete.addEventListener('click', () => deletePassword(entry.id, tr));
+
+      actionsDiv.appendChild(btnView);
+      actionsDiv.appendChild(btnDelete);
+      tdActions.appendChild(actionsDiv);
+
+      tr.appendChild(tdId);
+      tr.appendChild(tdTitle);
+      tr.appendChild(tdSite);
+      tr.appendChild(tdEntropy);
+      tr.appendChild(tdExp);
+      tr.appendChild(tdActions);
+
+      tbodyPasswords.appendChild(tr);
+    }
+
+    async function viewPassword(id, row) {
+      try {
+        setStatus("Carregando senha...");
+        const resp = await apiRequest(`/passwords/${id}`, {
+          method: "GET"
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Erro ao obter senha");
+        }
+
+        const data = await resp.json();
+        setStatus("Senha carregada.");
+
+        // Remove qualquer linha extra existente de senha
+        const existing = row.nextElementSibling;
+        if (existing && existing.classList.contains("password-row")) {
+          existing.remove();
+        }
+
+        const tr = document.createElement('tr');
+        tr.className = "password-row";
+
+        const td = document.createElement('td');
+        td.colSpan = 6;
+
+        td.innerHTML = `
+          <div>
+            <strong>Senha descriptografada:</strong>
+            <div class="password-value">${data.password}</div>
+          </div>
+        `;
+
+        tr.appendChild(td);
+        row.parentNode.insertBefore(tr, row.nextSibling);
+
+      } catch (e) {
+        console.error(e);
+        setStatus("Erro ao obter senha: " + e.message, "error");
+      }
+    }
+
+    async function deletePassword(id, row) {
+  if (!confirm("Tem certeza que deseja excluir esta senha?")) {
+    return;
+  }
+
+  try {
+    setStatus("Excluindo senha...");
+    const resp = await apiRequest(`/passwords/${id}`, {
+      method: "DELETE"
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || "Erro ao deletar senha");
+    }
+
+    row.remove();
+    const extra = row.nextElementSibling;
+    if (extra && extra.classList.contains("password-row")) {
+      extra.remove();
+    }
+
+    const data = await resp.json().catch(() => null);
+    setStatus(data?.message || "Senha deletada com sucesso.");
+  } catch (e) {
+    console.error(e);
+    setStatus("Erro ao deletar senha: " + e.message, "error");
+  }
+}
+
+
+    // ===== Form de criação de senha =====
+    formCreatePassword.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!sessionToken) {
+        setStatus("Você precisa estar logado.", "error");
+        return;
+      }
+
+      const title = document.getElementById('title').value.trim();
+      const site = document.getElementById('site').value.trim();
+      const length = parseInt(document.getElementById('length').value, 10) || 16;
+      const useUppercase = document.getElementById('use-uppercase').checked;
+      const useLowercase = document.getElementById('use-lowercase').checked;
+      const useDigits = document.getElementById('use-digits').checked;
+      const useSpecial = document.getElementById('use-special').checked;
+      const expirationInput = document.getElementById('expiration-date').value;
+      const customPassword = document.getElementById('custom-password').value.trim() || null;
+
+      const payload = {
+        title,
+        site,
+        length,
+        use_uppercase: useUppercase,
+        use_lowercase: useLowercase,
+        use_digits: useDigits,
+        use_special: useSpecial,
+        expiration_date: expirationInput ? new Date(expirationInput).toISOString() : null,
+        custom_password: customPassword
+      };
+
+      setStatus("Criando senha...");
+
+      try {
+        const resp = await apiRequest("/passwords", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Erro ao criar senha");
+        }
+
+        const data = await resp.json();
+        // adiciona a nova senha na tabela
+        addPasswordRow(data);
+        formCreatePassword.reset();
+        document.getElementById('length').value = 16;
+        document.getElementById('use-uppercase').checked = true;
+        document.getElementById('use-lowercase').checked = true;
+        document.getElementById('use-digits').checked = true;
+        document.getElementById('use-special').checked = true;
+        setStatus("Senha criada com sucesso.");
+      } catch (e) {
+        console.error(e);
+        setStatus("Erro ao criar senha: " + e.message, "error");
+      }
+    });
+
+    // ===== Inicial =====
+    setStatus("Aguardando login.");
+  </script>
+</body>
+</html>
+

@@ -17,6 +17,7 @@ class PasswordCreate(BaseModel):
     use_special: bool = Field(default=True)
     expiration_date: Optional[datetime] = None
     custom_password: Optional[str] = None
+    encrypted_password: Optional[str] = None
 
 
 class PasswordUpdate(BaseModel):
@@ -53,9 +54,22 @@ class PasswordResponse(BaseModel):
         from_attributes = True
 
 
-class PasswordDetailResponse(PasswordResponse):
-    """Schema de resposta para senha com a senha descriptografada"""
-    password: str
+class PasswordDetailResponse(BaseModel):
+    id: int
+    title: str
+    site: str
+    encrypted_password: str  # base64
+    length: int
+    use_uppercase: bool
+    use_lowercase: bool
+    use_digits: bool
+    use_special: bool
+    entropy: float
+    entropy_level: str
+    expiration_date: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
 
 
 class MasterPasswordRequest(BaseModel):

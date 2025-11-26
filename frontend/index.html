@@ -535,492 +535,698 @@
   </main>
 
   <script>
-    // ===== Configuração =====
-    const API_BASE = "http://localhost:8000/api";
+  // ===== Configuração =====
+  const API_BASE = "http://localhost:8000/api";
 
-    let sessionToken = null;
+  let sessionToken = null;
+  let masterPasswordPlain = null; // *** NOVO: guardar a master só no front
 
-    const statusEl = document.getElementById('status');
-    const loginSection = document.getElementById('login-section');
-    const appSection = document.getElementById('app-section');
+  const statusEl = document.getElementById('status');
+  const loginSection = document.getElementById('login-section');
+  const appSection = document.getElementById('app-section');
 
-    const masterPasswordInput = document.getElementById('master-password');
-    const btnLogin = document.getElementById('btn-login');
-    const btnLogout = document.getElementById('btn-logout');
+  const masterPasswordInput = document.getElementById('master-password');
+  const btnLogin = document.getElementById('btn-login');
+  const btnLogout = document.getElementById('btn-logout');
 
-    const formCreatePassword = document.getElementById('form-create-password');
-    const tbodyPasswords = document.getElementById('passwords-table-body');
-    const searchInput = document.getElementById('search-passwords');
-    const emptyState = document.getElementById('empty-state');
-    const customPasswordInput = document.getElementById('custom-password');
-    const passwordStrengthBar = document.getElementById('password-strength-bar');
-    const passwordStrengthText = document.getElementById('password-strength-text');
+  const formCreatePassword = document.getElementById('form-create-password');
+  const tbodyPasswords = document.getElementById('passwords-table-body');
+  const searchInput = document.getElementById('search-passwords');
+  const emptyState = document.getElementById('empty-state');
+  const customPasswordInput = document.getElementById('custom-password');
+  const passwordStrengthBar = document.getElementById('password-strength-bar');
+  const passwordStrengthText = document.getElementById('password-strength-text');
 
-    let allPasswords = [];
+  let allPasswords = [];
 
-    // ===== Helpers =====
-    function setStatus(message, type = "ok") {
-      statusEl.textContent = message;
-      statusEl.className = "";
-      if (type === "ok") statusEl.classList.add("ok");
-      if (type === "error") statusEl.classList.add("error");
+  // ===== Helpers de criptografia (NOVOS) =====
+
+  function bytesToBase64(bytes) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  async function deriveAesKey(masterPassword, salt, iterations = 300000) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(masterPassword),
+      { name: "PBKDF2" },
+      false,
+      ["deriveKey"]
+    );
+
+    const key = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: salt,
+        iterations: iterations,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+
+    return key;
+  }
+
+  async function encryptWithMasterPassword(plaintext, masterPassword) {
+    const enc = new TextEncoder();
+    const plaintextBytes = enc.encode(plaintext);
+
+    const SALT_SIZE = 16;
+    const NONCE_SIZE = 12;
+    const TAG_SIZE = 16;
+
+    const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE));
+    const nonce = crypto.getRandomValues(new Uint8Array(NONCE_SIZE));
+    const key = await deriveAesKey(masterPassword, salt);
+
+    const cipherBuffer = await crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: nonce,
+        tagLength: 128,
+      },
+      key,
+      plaintextBytes
+    );
+
+    const cipherBytes = new Uint8Array(cipherBuffer);
+
+    // WebCrypto retorna ciphertext || tag
+    const ciphertext = cipherBytes.slice(0, cipherBytes.length - TAG_SIZE);
+    const tag = cipherBytes.slice(cipherBytes.length - TAG_SIZE);
+
+    const blob = new Uint8Array(
+      salt.length + nonce.length + tag.length + ciphertext.length
+    );
+
+    blob.set(salt, 0);
+    blob.set(nonce, salt.length);
+    blob.set(tag, salt.length + nonce.length);
+    blob.set(ciphertext, salt.length + nonce.length + tag.length);
+
+    return bytesToBase64(blob);
+  }
+
+  async function decryptWithMasterPassword(base64Blob, masterPassword) {
+    const blob = base64ToBytes(base64Blob);
+
+    const SALT_SIZE = 16;
+    const NONCE_SIZE = 12;
+    const TAG_SIZE = 16;
+
+    let offset = 0;
+    const salt = blob.slice(offset, offset + SALT_SIZE);
+    offset += SALT_SIZE;
+
+    const nonce = blob.slice(offset, offset + NONCE_SIZE);
+    offset += NONCE_SIZE;
+
+    const tag = blob.slice(offset, offset + TAG_SIZE);
+    offset += TAG_SIZE;
+
+    const ciphertext = blob.slice(offset);
+
+    const key = await deriveAesKey(masterPassword, salt);
+
+    const cipherPlusTag = new Uint8Array(ciphertext.length + tag.length);
+    cipherPlusTag.set(ciphertext, 0);
+    cipherPlusTag.set(tag, ciphertext.length);
+
+    const plainBuffer = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: nonce,
+        tagLength: 128,
+      },
+      key,
+      cipherPlusTag
+    );
+
+    return new TextDecoder().decode(plainBuffer);
+  }
+
+  function generatePassword(length, useUppercase, useLowercase, useDigits, useSpecial) {
+    const UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
+    const DIGITS = "0123456789";
+    const SPECIAL = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+
+    let charset = "";
+    if (useUppercase) charset += UPPERCASE;
+    if (useLowercase) charset += LOWERCASE;
+    if (useDigits) charset += DIGITS;
+    if (useSpecial) charset += SPECIAL;
+
+    if (!charset) {
+      throw new Error("Pelo menos um tipo de caractere deve ser selecionado.");
     }
 
-    function showApp() {
-      loginSection.classList.add('hidden');
-      appSection.classList.remove('hidden');
+    const passwordChars = [];
+
+    if (useUppercase) passwordChars.push(UPPERCASE[Math.floor(Math.random() * UPPERCASE.length)]);
+    if (useLowercase) passwordChars.push(LOWERCASE[Math.floor(Math.random() * LOWERCASE.length)]);
+    if (useDigits) passwordChars.push(DIGITS[Math.floor(Math.random() * DIGITS.length)]);
+    if (useSpecial) passwordChars.push(SPECIAL[Math.floor(Math.random() * SPECIAL.length)]);
+
+    while (passwordChars.length < length) {
+      const idx = Math.floor(Math.random() * charset.length);
+      passwordChars.push(charset[idx]);
     }
 
-    function showLogin() {
-      appSection.classList.add('hidden');
-      loginSection.classList.remove('hidden');
-      tbodyPasswords.innerHTML = "";
-      allPasswords = [];
-      searchInput.value = "";
+    for (let i = passwordChars.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [passwordChars[i], passwordChars[j]] = [passwordChars[j], passwordChars[i]];
     }
 
-    async function apiRequest(path, options = {}) {
-      const url = API_BASE + path;
-      const headers = options.headers || {};
-      if (sessionToken) {
-        headers['X-Session-Token'] = sessionToken;
+    return passwordChars.join("");
+  }
+
+  // ===== Helpers =====
+  function setStatus(message, type = "ok") {
+    statusEl.textContent = message;
+    statusEl.className = "";
+    if (type === "ok") statusEl.classList.add("ok");
+    if (type === "error") statusEl.classList.add("error");
+  }
+
+  function showApp() {
+    loginSection.classList.add('hidden');
+    appSection.classList.remove('hidden');
+  }
+
+  function showLogin() {
+    appSection.classList.add('hidden');
+    loginSection.classList.remove('hidden');
+    tbodyPasswords.innerHTML = "";
+    allPasswords = [];
+    searchInput.value = "";
+  }
+
+  async function apiRequest(path, options = {}) {
+    const url = API_BASE + path;
+    const headers = options.headers || {};
+    if (sessionToken) {
+      headers['X-Session-Token'] = sessionToken;
+    }
+    return fetch(url, { ...options, headers });
+  }
+
+  function formatDate(isoString) {
+    if (!isoString) return "-";
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleString('pt-BR');
+    } catch (e) {
+      return isoString;
+    }
+  }
+
+  function getEntropyBadge(level) {
+    const levelLower = level.toLowerCase();
+    if (levelLower.includes('fraca') || levelLower.includes('weak')) {
+      return 'weak';
+    } else if (levelLower.includes('média') || levelLower.includes('medium') || levelLower.includes('moderate')) {
+      return 'medium';
+    } else {
+      return 'strong';
+    }
+  }
+
+  function calculatePasswordStrength(password) {
+    if (!password) return { strength: 0, text: '', color: '' };
+    
+    let strength = 0;
+    
+    if (password.length >= 8) strength += 1;
+    if (password.length >= 12) strength += 1;
+    if (password.length >= 16) strength += 1;
+    
+    if (/[a-z]/.test(password)) strength += 1;
+    if (/[A-Z]/.test(password)) strength += 1;
+    if (/[0-9]/.test(password)) strength += 1;
+    if (/[^a-zA-Z0-9]/.test(password)) strength += 1;
+    
+    const normalized = Math.min(strength / 7, 1);
+    let text = '';
+    let color = '';
+    
+    if (normalized < 0.3) {
+      text = 'Muito fraca';
+      color = '#ef4444';
+    } else if (normalized < 0.5) {
+      text = 'Fraca';
+      color = '#f59e0b';
+    } else if (normalized < 0.7) {
+      text = 'Média';
+      color = '#eab308';
+    } else if (normalized < 0.9) {
+      text = 'Forte';
+      color = '#10b981';
+    } else {
+      text = 'Muito forte';
+      color = '#059669';
+    }
+    
+    return { strength: normalized * 100, text, color };
+  }
+
+  async function copyToClipboard(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+      const originalText = button.textContent;
+      button.textContent = '✓ Copiado!';
+      button.classList.add('copied');
+      setTimeout(() => {
+        button.textContent = originalText;
+        button.classList.remove('copied');
+      }, 2000);
+    } catch (e) {
+      console.error('Erro ao copiar:', e);
+      setStatus('Erro ao copiar para área de transferência', 'error');
+    }
+  }
+
+  function updateEmptyState() {
+    const hasRows = tbodyPasswords.children.length > 0;
+    if (hasRows) {
+      emptyState.classList.add('hidden');
+    } else {
+      emptyState.classList.remove('hidden');
+    }
+  }
+
+  function filterPasswords() {
+    const searchTerm = searchInput.value.toLowerCase().trim();
+    
+    tbodyPasswords.innerHTML = ''; // garante que limpa sempre
+
+    if (!searchTerm) {
+      allPasswords.forEach(entry => addPasswordRow(entry));
+      updateEmptyState();
+      return;
+    }
+    
+    const filtered = allPasswords.filter(entry => 
+      entry.title.toLowerCase().includes(searchTerm) ||
+      entry.site.toLowerCase().includes(searchTerm)
+    );
+    
+    filtered.forEach(entry => addPasswordRow(entry));
+    updateEmptyState();
+  }
+
+  // ===== Login / Logout =====
+  document.getElementById('toggle-master-password').addEventListener('click', () => {
+    const input = masterPasswordInput;
+    const button = document.getElementById('toggle-master-password');
+    if (input.type === 'password') {
+      input.type = 'text';
+      button.textContent = 'Ocultar';
+    } else {
+      input.type = 'password';
+      button.textContent = 'Mostrar';
+    }
+  });
+
+  masterPasswordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      btnLogin.click();
+    }
+  });
+
+  btnLogin.addEventListener('click', async () => {
+    const masterPassword = masterPasswordInput.value.trim();
+    if (!masterPassword) {
+      setStatus("Digite a senha mestra.", "error");
+      return;
+    }
+
+    btnLogin.disabled = true;
+    setStatus("Fazendo login...");
+
+    try {
+      const resp = await fetch(API_BASE + "/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master_password: masterPassword })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || "Falha no login");
       }
-      return fetch(url, { ...options, headers });
+
+      const data = await resp.json();
+      sessionToken = data.token;
+
+      // *** NOVO: guardar master no front
+      masterPasswordPlain = masterPassword;
+
+      setStatus("Login realizado com sucesso.");
+      masterPasswordInput.value = "";
+      showApp();
+      await loadPasswords();
+    } catch (e) {
+      console.error(e);
+      setStatus("Erro no login: " + e.message, "error");
+    } finally {
+      btnLogin.disabled = false;
+    }
+  });
+
+  btnLogout.addEventListener('click', async () => {
+    if (!sessionToken) {
+      showLogin();
+      setStatus("Sessão encerrada.");
+      return;
     }
 
-    function formatDate(isoString) {
-      if (!isoString) return "-";
-      try {
-        const d = new Date(isoString);
-        return d.toLocaleString('pt-BR');
-      } catch (e) {
-        return isoString;
-      }
+    try {
+      await apiRequest("/auth/logout", {
+        method: "POST"
+      });
+    } catch (e) {
+      console.warn("Erro no logout (ignorado):", e);
+    } finally {
+      sessionToken = null;
+      masterPasswordPlain = null; // *** NOVO: limpar da memória
+      showLogin();
+      setStatus("Sessão encerrada.");
     }
+  });
 
-    function getEntropyBadge(level) {
-      const levelLower = level.toLowerCase();
-      if (levelLower.includes('fraca') || levelLower.includes('weak')) {
-        return 'weak';
-      } else if (levelLower.includes('média') || levelLower.includes('medium') || levelLower.includes('moderate')) {
-        return 'medium';
-      } else {
-        return 'strong';
-      }
-    }
+  // ===== CRUD de Senhas =====
+  async function loadPasswords() {
+    if (!sessionToken) return;
 
-    function calculatePasswordStrength(password) {
-      if (!password) return { strength: 0, text: '', color: '' };
-      
-      let strength = 0;
-      
-      // Length
-      if (password.length >= 8) strength += 1;
-      if (password.length >= 12) strength += 1;
-      if (password.length >= 16) strength += 1;
-      
-      // Character variety
-      if (/[a-z]/.test(password)) strength += 1;
-      if (/[A-Z]/.test(password)) strength += 1;
-      if (/[0-9]/.test(password)) strength += 1;
-      if (/[^a-zA-Z0-9]/.test(password)) strength += 1;
-      
-      // Return normalized strength
-      const normalized = Math.min(strength / 7, 1);
-      let text = '';
-      let color = '';
-      
-      if (normalized < 0.3) {
-        text = 'Muito fraca';
-        color = '#ef4444';
-      } else if (normalized < 0.5) {
-        text = 'Fraca';
-        color = '#f59e0b';
-      } else if (normalized < 0.7) {
-        text = 'Média';
-        color = '#eab308';
-      } else if (normalized < 0.9) {
-        text = 'Forte';
-        color = '#10b981';
-      } else {
-        text = 'Muito forte';
-        color = '#059669';
-      }
-      
-      return { strength: normalized * 100, text, color };
-    }
+    setStatus("Carregando senhas...");
+    tbodyPasswords.innerHTML = "";
+    allPasswords = [];
 
-    async function copyToClipboard(text, button) {
-      try {
-        await navigator.clipboard.writeText(text);
-        const originalText = button.textContent;
-        button.textContent = '✓ Copiado!';
-        button.classList.add('copied');
-        setTimeout(() => {
-          button.textContent = originalText;
-          button.classList.remove('copied');
-        }, 2000);
-      } catch (e) {
-        console.error('Erro ao copiar:', e);
-        setStatus('Erro ao copiar para área de transferência', 'error');
-      }
-    }
+    try {
+      const resp = await apiRequest("/passwords", {
+        method: "GET"
+      });
 
-    function updateEmptyState() {
-      const hasRows = tbodyPasswords.children.length > 0;
-      if (hasRows) {
-        emptyState.classList.add('hidden');
-      } else {
-        emptyState.classList.remove('hidden');
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || "Erro ao listar senhas");
       }
-    }
 
-    function filterPasswords() {
-      const searchTerm = searchInput.value.toLowerCase().trim();
-      
-      if (!searchTerm) {
-        allPasswords.forEach(entry => addPasswordRow(entry));
-        updateEmptyState();
-        return;
+      const data = await resp.json();
+      if (!Array.isArray(data)) {
+        throw new Error("Resposta inesperada do servidor.");
       }
-      
-      tbodyPasswords.innerHTML = '';
-      
-      const filtered = allPasswords.filter(entry => 
-        entry.title.toLowerCase().includes(searchTerm) ||
-        entry.site.toLowerCase().includes(searchTerm)
-      );
-      
-      filtered.forEach(entry => addPasswordRow(entry));
+
+      allPasswords = data;
+      data.forEach(entry => addPasswordRow(entry));
+      updateEmptyState();
+      setStatus("Senhas carregadas.");
+    } catch (e) {
+      console.error(e);
+      setStatus("Erro ao carregar senhas: " + e.message, "error");
       updateEmptyState();
     }
+  }
 
-    // ===== Login / Logout =====
-    // Toggle password visibility
-    document.getElementById('toggle-master-password').addEventListener('click', () => {
-      const input = masterPasswordInput;
-      const button = document.getElementById('toggle-master-password');
-      if (input.type === 'password') {
-        input.type = 'text';
-        button.textContent = 'Ocultar';
-      } else {
-        input.type = 'password';
-        button.textContent = 'Mostrar';
-      }
-    });
+  function addPasswordRow(entry) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = entry.id;
 
-    // Enter key on master password
-    masterPasswordInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        btnLogin.click();
-      }
-    });
+    const tdId = document.createElement('td');
+    tdId.textContent = entry.id;
 
-    btnLogin.addEventListener('click', async () => {
-      const masterPassword = masterPasswordInput.value.trim();
-      if (!masterPassword) {
-        setStatus("Digite a senha mestra.", "error");
+    const tdTitle = document.createElement('td');
+    tdTitle.textContent = entry.title;
+
+    const tdSite = document.createElement('td');
+    tdSite.textContent = entry.site;
+
+    const tdEntropy = document.createElement('td');
+    const badgeClass = getEntropyBadge(entry.entropy_level);
+    tdEntropy.innerHTML = `
+      <div>${entry.entropy} bits</div>
+      <span class="badge ${badgeClass}">${entry.entropy_level}</span>
+    `;
+
+    const tdExp = document.createElement('td');
+    tdExp.textContent = formatDate(entry.expiration_date);
+
+    const tdActions = document.createElement('td');
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = "row-actions";
+
+    const btnView = document.createElement('button');
+    btnView.textContent = "Ver";
+    btnView.className = "secondary";
+    btnView.addEventListener('click', () => viewPassword(entry.id, tr));
+
+    const btnDelete = document.createElement('button');
+    btnDelete.textContent = "Excluir";
+    btnDelete.className = "danger";
+    btnDelete.addEventListener('click', () => deletePassword(entry.id, tr));
+
+    actionsDiv.appendChild(btnView);
+    actionsDiv.appendChild(btnDelete);
+    tdActions.appendChild(actionsDiv);
+
+    tr.appendChild(tdId);
+    tr.appendChild(tdTitle);
+    tr.appendChild(tdSite);
+    tr.appendChild(tdEntropy);
+    tr.appendChild(tdExp);
+    tr.appendChild(tdActions);
+
+    tbodyPasswords.appendChild(tr);
+  }
+
+  async function viewPassword(id, row) {
+    try {
+      if (!masterPasswordPlain) {
+        setStatus("Senha mestra não está disponível no cliente.", "error");
         return;
       }
 
-      btnLogin.disabled = true;
-      setStatus("Fazendo login...");
+      setStatus("Carregando senha...");
+      const resp = await apiRequest(`/passwords/${id}`, {
+        method: "GET"
+      });
 
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || "Erro ao obter senha");
+      }
+
+      const data = await resp.json();
+
+      // *** NOVO: senha vem criptografada -> descriptografar no cliente
+      let decrypted;
       try {
-        const resp = await fetch(API_BASE + "/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ master_password: masterPassword })
-        });
-
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail || "Falha no login");
-        }
-
-        const data = await resp.json();
-        sessionToken = data.token;
-        setStatus("Login realizado com sucesso.");
-        masterPasswordInput.value = "";
-        showApp();
-        await loadPasswords();
+        decrypted = await decryptWithMasterPassword(data.encrypted_password, masterPasswordPlain);
       } catch (e) {
         console.error(e);
-        setStatus("Erro no login: " + e.message, "error");
-      } finally {
-        btnLogin.disabled = false;
-      }
-    });
-
-    btnLogout.addEventListener('click', async () => {
-      if (!sessionToken) {
-        showLogin();
-        setStatus("Sessão encerrada.");
+        setStatus("Erro ao descriptografar a senha no cliente: " + e.message, "error");
         return;
       }
 
-      try {
-        await apiRequest("/auth/logout", {
-          method: "POST"
-        });
-      } catch (e) {
-        console.warn("Erro no logout (ignorado):", e);
-      } finally {
-        sessionToken = null;
-        showLogin();
-        setStatus("Sessão encerrada.");
+      setStatus("Senha carregada.");
+
+      const existing = row.nextElementSibling;
+      if (existing && existing.classList.contains("password-row")) {
+        existing.remove();
       }
-    });
 
-    // ===== CRUD de Senhas =====
-    async function loadPasswords() {
-      if (!sessionToken) return;
-
-      setStatus("Carregando senhas...");
-      tbodyPasswords.innerHTML = "";
-      allPasswords = [];
-
-      try {
-        const resp = await apiRequest("/passwords", {
-          method: "GET"
-        });
-
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail || "Erro ao listar senhas");
-        }
-
-        const data = await resp.json();
-        if (!Array.isArray(data)) {
-          throw new Error("Resposta inesperada do servidor.");
-        }
-
-        allPasswords = data;
-        data.forEach(entry => addPasswordRow(entry));
-        updateEmptyState();
-        setStatus("Senhas carregadas.");
-      } catch (e) {
-        console.error(e);
-        setStatus("Erro ao carregar senhas: " + e.message, "error");
-        updateEmptyState();
-      }
-    }
-
-    function addPasswordRow(entry) {
       const tr = document.createElement('tr');
-      tr.dataset.id = entry.id;
+      tr.className = "password-row";
 
-      const tdId = document.createElement('td');
-      tdId.textContent = entry.id;
+      const td = document.createElement('td');
+      td.colSpan = 6;
 
-      const tdTitle = document.createElement('td');
-      tdTitle.textContent = entry.title;
+      const escaped = decrypted.replace(/'/g, "\\'");
 
-      const tdSite = document.createElement('td');
-      tdSite.textContent = entry.site;
-
-      const tdEntropy = document.createElement('td');
-      const badgeClass = getEntropyBadge(entry.entropy_level);
-      tdEntropy.innerHTML = `
-        <div>${entry.entropy} bits</div>
-        <span class="badge ${badgeClass}">${entry.entropy_level}</span>
+      td.innerHTML = `
+        <div>
+          <strong>Senha descriptografada (no cliente):</strong>
+          <div class="password-value">
+            ${decrypted}
+            <button class="copy-btn" onclick="copyToClipboard('${escaped}', this)">📋 Copiar</button>
+          </div>
+        </div>
       `;
 
-      const tdExp = document.createElement('td');
-      tdExp.textContent = formatDate(entry.expiration_date);
+      tr.appendChild(td);
+      row.parentNode.insertBefore(tr, row.nextSibling);
 
-      const tdActions = document.createElement('td');
-      const actionsDiv = document.createElement('div');
-      actionsDiv.className = "row-actions";
+    } catch (e) {
+      console.error(e);
+      setStatus("Erro ao obter senha: " + e.message, "error");
+    }
+  }
 
-      const btnView = document.createElement('button');
-      btnView.textContent = "Ver";
-      btnView.className = "secondary";
-      btnView.addEventListener('click', () => viewPassword(entry.id, tr));
-
-      const btnDelete = document.createElement('button');
-      btnDelete.textContent = "Excluir";
-      btnDelete.className = "danger";
-      btnDelete.addEventListener('click', () => deletePassword(entry.id, tr));
-
-      actionsDiv.appendChild(btnView);
-      actionsDiv.appendChild(btnDelete);
-      tdActions.appendChild(actionsDiv);
-
-      tr.appendChild(tdId);
-      tr.appendChild(tdTitle);
-      tr.appendChild(tdSite);
-      tr.appendChild(tdEntropy);
-      tr.appendChild(tdExp);
-      tr.appendChild(tdActions);
-
-      tbodyPasswords.appendChild(tr);
+  async function deletePassword(id, row) {
+    if (!confirm("Tem certeza que deseja excluir esta senha?")) {
+      return;
     }
 
-    async function viewPassword(id, row) {
-      try {
-        setStatus("Carregando senha...");
-        const resp = await apiRequest(`/passwords/${id}`, {
-          method: "GET"
-        });
+    try {
+      setStatus("Excluindo senha...");
+      const resp = await apiRequest(`/passwords/${id}`, {
+        method: "DELETE"
+      });
 
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail || "Erro ao obter senha");
-        }
-
-        const data = await resp.json();
-        setStatus("Senha carregada.");
-
-        // Remove qualquer linha extra existente de senha
-        const existing = row.nextElementSibling;
-        if (existing && existing.classList.contains("password-row")) {
-          existing.remove();
-        }
-
-        const tr = document.createElement('tr');
-        tr.className = "password-row";
-
-        const td = document.createElement('td');
-        td.colSpan = 6;
-
-        td.innerHTML = `
-          <div>
-            <strong>Senha descriptografada:</strong>
-            <div class="password-value">
-              ${data.password}
-              <button class="copy-btn" onclick="copyToClipboard('${data.password.replace(/'/g, "\\'")}', this)">📋 Copiar</button>
-            </div>
-          </div>
-        `;
-
-        tr.appendChild(td);
-        row.parentNode.insertBefore(tr, row.nextSibling);
-
-      } catch (e) {
-        console.error(e);
-        setStatus("Erro ao obter senha: " + e.message, "error");
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || "Erro ao deletar senha");
       }
+
+      allPasswords = allPasswords.filter(p => p.id !== id);
+
+      row.remove();
+      const extra = row.nextElementSibling;
+      if (extra && extra.classList.contains("password-row")) {
+        extra.remove();
+      }
+
+      updateEmptyState();
+
+      const data = await resp.json().catch(() => null);
+      setStatus(data?.message || "Senha deletada com sucesso.");
+    } catch (e) {
+      console.error(e);
+      setStatus("Erro ao deletar senha: " + e.message, "error");
+    }
+  }
+
+  // ===== Form de criação de senha =====
+  formCreatePassword.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!sessionToken) {
+      setStatus("Você precisa estar logado.", "error");
+      return;
+    }
+    if (!masterPasswordPlain) {
+      setStatus("Senha mestra não está disponível no cliente.", "error");
+      return;
     }
 
-    async function deletePassword(id, row) {
-      if (!confirm("Tem certeza que deseja excluir esta senha?")) {
+    const title = document.getElementById('title').value.trim();
+    const site = document.getElementById('site').value.trim();
+    let length = parseInt(document.getElementById('length').value, 10) || 16;
+    const useUppercase = document.getElementById('use-uppercase').checked;
+    const useLowercase = document.getElementById('use-lowercase').checked;
+    const useDigits = document.getElementById('use-digits').checked;
+    const useSpecial = document.getElementById('use-special').checked;
+    const expirationInput = document.getElementById('expiration-date').value;
+    const customPassword = document.getElementById('custom-password').value.trim() || null;
+
+    let plainPassword;
+    if (customPassword) {
+      plainPassword = customPassword;
+      length = customPassword.length;
+    } else {
+      try {
+        plainPassword = generatePassword(length, useUppercase, useLowercase, useDigits, useSpecial);
+      } catch (e) {
+        setStatus(e.message, "error");
         return;
       }
-
-      try {
-        setStatus("Excluindo senha...");
-        const resp = await apiRequest(`/passwords/${id}`, {
-          method: "DELETE"
-        });
-
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail || "Erro ao deletar senha");
-        }
-
-        // Remove from local array
-        allPasswords = allPasswords.filter(p => p.id !== id);
-
-        row.remove();
-        const extra = row.nextElementSibling;
-        if (extra && extra.classList.contains("password-row")) {
-          extra.remove();
-        }
-
-        updateEmptyState();
-
-        const data = await resp.json().catch(() => null);
-        setStatus(data?.message || "Senha deletada com sucesso.");
-      } catch (e) {
-        console.error(e);
-        setStatus("Erro ao deletar senha: " + e.message, "error");
-      }
     }
 
-    // ===== Form de criação de senha =====
-    formCreatePassword.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (!sessionToken) {
-        setStatus("Você precisa estar logado.", "error");
-        return;
+    setStatus("Criptografando senha no cliente...");
+
+    let encryptedBase64;
+    try {
+      encryptedBase64 = await encryptWithMasterPassword(plainPassword, masterPasswordPlain);
+    } catch (e) {
+      console.error(e);
+      setStatus("Erro ao criptografar a senha no cliente: " + e.message, "error");
+      return;
+    }
+
+    const payload = {
+      title,
+      site,
+      length,
+      use_uppercase: useUppercase,
+      use_lowercase: useLowercase,
+      use_digits: useDigits,
+      use_special: useSpecial,
+      expiration_date: expirationInput ? new Date(expirationInput).toISOString() : null,
+      custom_password: null,                 // *** deixa de mandar texto puro
+      encrypted_password: encryptedBase64    // *** NOVO
+    };
+
+    setStatus("Criando senha...");
+
+    try {
+      const resp = await apiRequest("/passwords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || "Erro ao criar senha");
       }
 
-      const title = document.getElementById('title').value.trim();
-      const site = document.getElementById('site').value.trim();
-      const length = parseInt(document.getElementById('length').value, 10) || 16;
-      const useUppercase = document.getElementById('use-uppercase').checked;
-      const useLowercase = document.getElementById('use-lowercase').checked;
-      const useDigits = document.getElementById('use-digits').checked;
-      const useSpecial = document.getElementById('use-special').checked;
-      const expirationInput = document.getElementById('expiration-date').value;
-      const customPassword = document.getElementById('custom-password').value.trim() || null;
+      const data = await resp.json();
+      addPasswordRow(data);
+      allPasswords.push(data);
+      formCreatePassword.reset();
+      document.getElementById('length').value = 16;
+      document.getElementById('use-uppercase').checked = true;
+      document.getElementById('use-lowercase').checked = true;
+      document.getElementById('use-digits').checked = true;
+      document.getElementById('use-special').checked = true;
+      passwordStrengthBar.style.width = '0%';
+      passwordStrengthText.textContent = '';
+      updateEmptyState();
+      setStatus("Senha criada com sucesso.");
+    } catch (e) {
+      console.error(e);
+      setStatus("Erro ao criar senha: " + e.message, "error");
+    }
+  });
 
-      const payload = {
-        title,
-        site,
-        length,
-        use_uppercase: useUppercase,
-        use_lowercase: useLowercase,
-        use_digits: useDigits,
-        use_special: useSpecial,
-        expiration_date: expirationInput ? new Date(expirationInput).toISOString() : null,
-        custom_password: customPassword
-      };
+  // Password strength indicator
+  customPasswordInput.addEventListener('input', (e) => {
+    const password = e.target.value;
+    const result = calculatePasswordStrength(password);
+    
+    passwordStrengthBar.style.width = result.strength + '%';
+    passwordStrengthBar.style.backgroundColor = result.color;
+    passwordStrengthText.textContent = result.text;
+    passwordStrengthText.style.color = result.color;
+  });
 
-      setStatus("Criando senha...");
+  // Search functionality
+  searchInput.addEventListener('input', filterPasswords);
 
-      try {
-        const resp = await apiRequest("/passwords", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+  // Make copyToClipboard available globally
+  window.copyToClipboard = copyToClipboard;
 
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail || "Erro ao criar senha");
-        }
+  // ===== Inicial =====
+  setStatus("Aguardando login.");
+  updateEmptyState();
+</script>
 
-        const data = await resp.json();
-        addPasswordRow(data);
-        allPasswords.push(data);
-        formCreatePassword.reset();
-        document.getElementById('length').value = 16;
-        document.getElementById('use-uppercase').checked = true;
-        document.getElementById('use-lowercase').checked = true;
-        document.getElementById('use-digits').checked = true;
-        document.getElementById('use-special').checked = true;
-        passwordStrengthBar.style.width = '0%';
-        passwordStrengthText.textContent = '';
-        updateEmptyState();
-        setStatus("Senha criada com sucesso.");
-      } catch (e) {
-        console.error(e);
-        setStatus("Erro ao criar senha: " + e.message, "error");
-      }
-    });
-
-    // Password strength indicator
-    customPasswordInput.addEventListener('input', (e) => {
-      const password = e.target.value;
-      const result = calculatePasswordStrength(password);
-      
-      passwordStrengthBar.style.width = result.strength + '%';
-      passwordStrengthBar.style.backgroundColor = result.color;
-      passwordStrengthText.textContent = result.text;
-      passwordStrengthText.style.color = result.color;
-    });
-
-    // Search functionality
-    searchInput.addEventListener('input', filterPasswords);
-
-    // Make copyToClipboard available globally
-    window.copyToClipboard = copyToClipboard;
-
-    // ===== Inicial =====
-    setStatus("Aguardando login.");
-    updateEmptyState();
-  </script>
 </body>
 </html>

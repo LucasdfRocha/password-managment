@@ -1,6 +1,7 @@
 """
 API REST para o gerenciador de senhas
 """
+import base64
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
@@ -14,7 +15,7 @@ from schemas import (
 from auth import auth_manager
 from password_manager import PasswordManager
 from password_generator import PasswordGenerator
-from wallet import WalletManager
+# from wallet import WalletManager
 
 app = FastAPI(
     title="Password Manager API",
@@ -77,6 +78,8 @@ async def logout(token: str = Header(..., alias="X-Session-Token")):
     return {"message": "Logout realizado com sucesso"}
 
 
+# api.py
+
 @app.post("/api/passwords", response_model=PasswordResponse, status_code=201)
 async def create_password(
     password_data: PasswordCreate,
@@ -85,10 +88,17 @@ async def create_password(
     """
     Cria uma nova senha
     
-    Returns:
-        Dados da senha criada
+    Agora aceita também password_data.encrypted_password (base64),
+    gerada no front-end.
     """
     try:
+        encrypted_bytes = None
+        if getattr(password_data, "encrypted_password", None):
+            try:
+                encrypted_bytes = base64.b64decode(password_data.encrypted_password)
+            except Exception:
+                raise HTTPException(status_code=400, detail="encrypted_password inválido (base64)")
+
         entry_id = pm.create_password(
             title=password_data.title,
             site=password_data.site,
@@ -98,14 +108,14 @@ async def create_password(
             use_digits=password_data.use_digits,
             use_special=password_data.use_special,
             expiration_date=password_data.expiration_date,
-            custom_password=password_data.custom_password
+            custom_password=password_data.custom_password,  # pode ficar sempre None se usarem apenas o front
+            encrypted_password=encrypted_bytes,
         )
         
-        result = pm.get_password(entry_id)
-        if not result:
+        entry = pm.get_password(entry_id)
+        if not entry:
             raise HTTPException(status_code=500, detail="Erro ao recuperar senha criada")
         
-        entry, _ = result
         entropy_level = PasswordGenerator.get_entropy_level(entry.entropy)
         
         return PasswordResponse(
@@ -123,6 +133,8 @@ async def create_password(
             created_at=entry.created_at,
             updated_at=entry.updated_at
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -162,33 +174,32 @@ async def list_passwords(pm: PasswordManager = Depends(get_password_manager)):
         raise HTTPException(status_code=500, detail=f"Erro ao listar senhas: {str(e)}")
 
 
+# api.py
+
 @app.get("/api/passwords/{entry_id}", response_model=PasswordDetailResponse)
 async def get_password(
     entry_id: int,
     pm: PasswordManager = Depends(get_password_manager)
 ):
     """
-    Obtém uma senha específica com a senha descriptografada
-    
-    Args:
-        entry_id: ID da senha
-        
-    Returns:
-        Dados completos da senha incluindo a senha descriptografada
+    Obtém uma senha específica com a SENHA AINDA CRIPTOGRAFADA.
+    Quem vai descriptografar é o cliente.
     """
     try:
-        result = pm.get_password(entry_id)
-        if not result:
+        entry = pm.get_password(entry_id)
+        if not entry:
             raise HTTPException(status_code=404, detail="Senha não encontrada")
-        
-        entry, decrypted_password = result
+
+        # entry.password deve ser bytes vindos do DB
+        encrypted_b64 = base64.b64encode(entry.password).decode("utf-8")
+
         entropy_level = PasswordGenerator.get_entropy_level(entry.entropy)
         
         return PasswordDetailResponse(
             id=entry.id,
             title=entry.title,
             site=entry.site,
-            password=decrypted_password,
+            encrypted_password=encrypted_b64,  # <-- novo campo
             length=entry.length,
             use_uppercase=entry.use_uppercase,
             use_lowercase=entry.use_lowercase,
@@ -213,16 +224,22 @@ async def update_password(
     pm: PasswordManager = Depends(get_password_manager)
 ):
     """
-    Atualiza uma senha
-    
-    Args:
-        entry_id: ID da senha
-        password_data: Dados para atualização
-        
-    Returns:
-        Dados atualizados da senha
+    Atualiza uma senha.
+
+    IMPORTANTE:
+    - Idealmente, o cliente também envia encrypted_password (base64)
+      se for trocar a senha em si.
+    - O servidor continua sem descriptografar nada.
     """
     try:
+        # Opcional: se você adicionar encrypted_password no PasswordUpdate
+        encrypted_bytes = None
+        if getattr(password_data, "encrypted_password", None):
+            try:
+                encrypted_bytes = base64.b64decode(password_data.encrypted_password)
+            except Exception:
+                raise HTTPException(status_code=400, detail="encrypted_password inválido (base64)")
+
         success = pm.update_password(
             entry_id=entry_id,
             title=password_data.title,
@@ -234,17 +251,17 @@ async def update_password(
             use_special=password_data.use_special,
             expiration_date=password_data.expiration_date,
             regenerate=password_data.regenerate,
-            custom_password=password_data.custom_password
+            custom_password=password_data.custom_password,
+            encrypted_password=encrypted_bytes,  # novo parâmetro, ajuste no PasswordManager
         )
         
         if not success:
             raise HTTPException(status_code=404, detail="Senha não encontrada")
         
-        result = pm.get_password(entry_id)
-        if not result:
+        entry = pm.get_password(entry_id)
+        if not entry:
             raise HTTPException(status_code=500, detail="Erro ao recuperar senha atualizada")
         
-        entry, _ = result
         entropy_level = PasswordGenerator.get_entropy_level(entry.entropy)
         
         return PasswordResponse(
@@ -268,7 +285,6 @@ async def update_password(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar senha: {str(e)}")
-
 
 @app.delete("/api/passwords/{entry_id}", response_model=MessageResponse)
 async def delete_password(

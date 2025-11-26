@@ -1,83 +1,76 @@
-"""
-Sistema de criptografia para senhas
-"""
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.backends import default_backend
+from Crypto.Cipher import AES
+from Crypto.Protocol.KDF import PBKDF2
+from Crypto.Hash import SHA256
 import base64
 import os
 import json
 
 
 class EncryptionManager:
-    """Gerenciador de criptografia usando Fernet (AES 128)"""
+    """Gerenciador de criptografia usando AES-256-GCM"""
     KDF_ITERATIONS = 100000
-    
     SALT_FILE = ".salt"
-    
+    KEY_SIZE = 32  # 256 bits para AES-256
+    NONCE_SIZE = 12  # 96 bits recomendado para GCM
+
     def __init__(self, master_password: str, salt: bytes = None):
-        """
-        Inicializa o gerenciador de criptografia
-        
-        Args:
-            master_password: Senha mestra do usuário
-            salt: Salt para derivação de chave (opcional, será carregado/gerado automaticamente)
-        """
         if salt is None:
             salt = self._load_or_create_salt()
         self.salt = salt
         self.master_password = master_password
-        self._fernet = None
-        self._initialize_fernet()
-    
+        self._key = self._derive_key()
+
     def _load_or_create_salt(self) -> bytes:
-        """
-        Carrega o salt do arquivo ou cria um novo se não existir
-        
-        Returns:
-            Salt em bytes
-        """
         if os.path.exists(self.SALT_FILE):
             try:
                 with open(self.SALT_FILE, 'r') as f:
                     data = json.load(f)
                     return base64.b64decode(data['salt'])
             except Exception:
-
                 pass
 
         salt = os.urandom(16)
         self._save_salt(salt)
         return salt
-    
+
     def _save_salt(self, salt: bytes):
-        """Salva o salt em um arquivo"""
         with open(self.SALT_FILE, 'w') as f:
             json.dump({'salt': base64.b64encode(salt).decode()}, f)
-    
-    def _initialize_fernet(self):
-        """Inicializa o objeto Fernet com a chave derivada da senha mestra"""
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=self.salt,
-            iterations=self.KDF_ITERATIONS,
-            backend=default_backend()
+
+    def _derive_key(self) -> bytes:
+        return PBKDF2(
+            self.master_password.encode(),
+            self.salt,
+            dkLen=self.KEY_SIZE,
+            count=self.KDF_ITERATIONS,
+            hmac_hash_module=SHA256
         )
-        key = base64.urlsafe_b64encode(kdf.derive(self.master_password.encode()))
-        self._fernet = Fernet(key)
-    
+
     def encrypt(self, plaintext: str) -> bytes:
-        """Criptografa um texto"""
-        return self._fernet.encrypt(plaintext.encode())
-    
+        plaintext_bytes = plaintext.encode('utf-8')
+
+        cipher = AES.new(self._key, AES.MODE_GCM)
+
+        ciphertext, tag = cipher.encrypt_and_digest(plaintext_bytes)
+
+        return cipher.nonce + tag + ciphertext
+
     def decrypt(self, ciphertext: bytes) -> str:
-        """Descriptografa um texto"""
-        return self._fernet.decrypt(ciphertext).decode()
-    
+        if len(ciphertext) < self.NONCE_SIZE + 16: #minimo
+            raise ValueError("Ciphertext muito curto")
+
+        # pega o nonce, tag e ciphertext
+        nonce = ciphertext[:self.NONCE_SIZE]
+        tag = ciphertext[self.NONCE_SIZE:self.NONCE_SIZE + 16]
+        ciphertext_data = ciphertext[self.NONCE_SIZE + 16:]
+
+        # cria o cipher GCM com o nonce
+        cipher = AES.new(self._key, AES.MODE_GCM, nonce=nonce)
+
+        plaintext_bytes = cipher.decrypt_and_verify(ciphertext_data, tag)
+        return plaintext_bytes.decode('utf-8')
+
     def get_salt(self) -> bytes:
-        """Retorna o salt usado"""
         return self.salt
 
     def get_metadata(self, include_salt: bool = True) -> dict:
@@ -90,8 +83,8 @@ class EncryptionManager:
             Dicionário com chaves: algorithm, kdf, kdf_hash, kdf_iterations, salt
         """
         meta = {
-            "algorithm": "Fernet",
-            "kdf": "PBKDF2HMAC",
+            "algorithm": "AES-256-GCM",
+            "kdf": "PBKDF2",
             "kdf_hash": "SHA256",
             "kdf_iterations": self.KDF_ITERATIONS,
         }
@@ -104,17 +97,15 @@ class EncryptionManager:
 
         Essa chave pode ser usada para HMAC/assinatura ou outras operações.
         """
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=length,
-            salt=self.salt,
-            iterations=self.KDF_ITERATIONS,
-            backend=default_backend(),
+        return PBKDF2(
+            self.master_password.encode(),
+            self.salt,
+            dkLen=length,
+            count=self.KDF_ITERATIONS,
+            hmac_hash_module=SHA256
         )
-        return kdf.derive(self.master_password.encode())
 
 
 def create_encryption_manager(master_password: str, salt: bytes = None) -> EncryptionManager:
-    """Factory function para criar um EncryptionManager"""
     return EncryptionManager(master_password, salt)
 

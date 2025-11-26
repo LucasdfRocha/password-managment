@@ -19,6 +19,7 @@ class PasswordManager:
         """
         self.encryption_manager = EncryptionManager(master_password)
         self.db_manager = DatabaseManager(db_path)
+        self.user_id: Optional[int] = None  # Será definido durante autenticação
     
     def create_password(
         self,
@@ -49,6 +50,9 @@ class PasswordManager:
         Returns:
             ID da entrada criada
         """
+        if not self.user_id:
+            raise ValueError("Usuário não autenticado")
+        
         if custom_password:
             password = custom_password
             length = len(password)
@@ -64,6 +68,7 @@ class PasswordManager:
         now = datetime.now()
         entry = PasswordEntry(
             id=None,
+            user_id=self.user_id,
             title=title,
             site=site,
             password="",
@@ -83,8 +88,10 @@ class PasswordManager:
         return entry_id
     
     def get_all_passwords(self) -> List[PasswordEntry]:
-        """Retorna todas as senhas (sem descriptografar)"""
-        return self.db_manager.get_all_entries()
+        """Retorna todas as senhas do usuário (sem descriptografar)"""
+        if not self.user_id:
+            raise ValueError("Usuário não autenticado")
+        return self.db_manager.get_all_entries(self.user_id)
     
     def get_password(self, entry_id: int) -> Optional[tuple]:
         """
@@ -96,7 +103,10 @@ class PasswordManager:
         Returns:
             Tupla (PasswordEntry, senha_descriptografada) ou None
         """
-        entry = self.db_manager.get_entry_by_id(entry_id)
+        if not self.user_id:
+            raise ValueError("Usuário não autenticado")
+        
+        entry = self.db_manager.get_entry_by_id(entry_id, self.user_id)
         if not entry:
             return None
         
@@ -136,7 +146,10 @@ class PasswordManager:
         Returns:
             True se atualizado com sucesso, False caso contrário
         """
-        entry = self.db_manager.get_entry_by_id(entry_id)
+        if not self.user_id:
+            raise ValueError("Usuário não autenticado")
+        
+        entry = self.db_manager.get_entry_by_id(entry_id, self.user_id)
         if not entry:
             return False
         
@@ -182,7 +195,7 @@ class PasswordManager:
             encrypted_password = entry.password
         
         entry.updated_at = datetime.now()
-        self.db_manager.update_entry(entry_id, entry, encrypted_password)
+        self.db_manager.update_entry(entry_id, self.user_id, entry, encrypted_password)
         return True
     
     def delete_password(self, entry_id: int) -> bool:
@@ -195,10 +208,13 @@ class PasswordManager:
         Returns:
             True se deletado com sucesso, False caso contrário
         """
-        entry = self.db_manager.get_entry_by_id(entry_id)
+        if not self.user_id:
+            raise ValueError("Usuário não autenticado")
+        
+        entry = self.db_manager.get_entry_by_id(entry_id, self.user_id)
         if not entry:
             return False
         
-        self.db_manager.delete_entry(entry_id)
+        self.db_manager.delete_entry(entry_id, self.user_id)
         return True
 

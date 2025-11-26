@@ -7,9 +7,21 @@ from typing import Optional
 
 
 @dataclass
+class User:
+    """Modelo para um usuário"""
+    id: Optional[int]
+    username: str
+    email: str
+    password_hash: str  # hash bcrypt
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
 class PasswordEntry:
     """Modelo para uma entrada de senha"""
     id: Optional[int]
+    user_id: int  # FK para usuário
     title: str
     site: str
     password: str  # criptografada

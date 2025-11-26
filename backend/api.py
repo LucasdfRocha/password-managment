@@ -3,12 +3,16 @@ API REST para o gerenciador de senhas
 """
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from typing import Optional, List
 from datetime import datetime
+import os
 
 from schemas import (
     PasswordCreate, PasswordUpdate, PasswordResponse, PasswordDetailResponse,
-    MasterPasswordRequest, WalletExportRequest, WalletImportRequest,
+    UserRegisterRequest, UserLoginRequest, UserResponse,
+    WalletExportRequest, WalletImportRequest,
     PasswordGenerateRequest, PasswordGenerateResponse, MessageResponse
 )
 from auth import auth_manager
@@ -44,14 +48,41 @@ def get_password_manager(token: str = Header(..., alias="X-Session-Token")) -> P
     Raises:
         HTTPException: Se o token for inválido
     """
+    try:
+        auth_manager.verify_token(token)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    
     pm = auth_manager.get_password_manager(token)
     if not pm:
-        raise HTTPException(status_code=401, detail="Token de sessão inválido ou expirado")
+        raise HTTPException(status_code=401, detail="Token de sessão inválido")
+    
+    user_id = auth_manager.get_user_id_from_token(token)
+    if user_id:
+        pm.user_id = user_id
+    
     return pm
 
 
-@app.post("/api/auth/login", response_model=dict)
-async def login(request: MasterPasswordRequest):
+@app.post("/api/auth/register", response_model=UserResponse)
+async def register(request: UserRegisterRequest):
+    """
+    Registra um novo usuário
+    
+    Returns:
+        Token de sessão
+    """
+    try:
+        token = auth_manager.register_user(request.username, request.email, request.password)
+        return {"token": token, "message": "Usuário registrado com sucesso"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar: {str(e)}")
+
+
+@app.post("/api/auth/login", response_model=UserResponse)
+async def login(request: UserLoginRequest):
     """
     Autentica o usuário e cria uma sessão
     
@@ -59,10 +90,12 @@ async def login(request: MasterPasswordRequest):
         Token de sessão
     """
     try:
-        token = auth_manager.create_session(request.master_password)
+        token = auth_manager.login(request.username, request.password)
         return {"token": token, "message": "Login realizado com sucesso"}
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Erro ao fazer login: {str(e)}")
 
 
 @app.post("/api/auth/logout")
@@ -73,7 +106,10 @@ async def logout(token: str = Header(..., alias="X-Session-Token")):
     Returns:
         Mensagem de sucesso
     """
-    auth_manager.remove_session(token)
+    try:
+        auth_manager.logout(token)
+    except:
+        pass
     return {"message": "Logout realizado com sucesso"}
 
 
@@ -390,6 +426,28 @@ async def import_wallet(
         raise HTTPException(status_code=404, detail="Arquivo wallet não encontrado")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao importar wallet: {str(e)}")
+
+
+@app.get("/")
+async def root():
+    """
+    Serve o arquivo index.html
+    """
+    frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html")
+    if os.path.exists(frontend_path):
+        return FileResponse(frontend_path)
+    return {"message": "Frontend não encontrado"}
+
+
+@app.get("/index.html")
+async def serve_index():
+    """
+    Serve o arquivo index.html
+    """
+    frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html")
+    if os.path.exists(frontend_path):
+        return FileResponse(frontend_path)
+    return {"message": "Frontend não encontrado"}
 
 
 @app.get("/api/health")

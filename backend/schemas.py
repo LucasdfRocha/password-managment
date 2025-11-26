@@ -6,6 +6,25 @@ from typing import Optional
 from datetime import datetime
 
 
+class UserRegisterRequest(BaseModel):
+    """Schema para registro de novo usuário"""
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., min_length=5, max_length=100)
+    password: str = Field(..., min_length=6, max_length=100)
+
+
+class UserLoginRequest(BaseModel):
+    """Schema para login de usuário"""
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class UserResponse(BaseModel):
+    """Schema de resposta de usuário"""
+    token: str
+    message: str
+
+
 class PasswordCreate(BaseModel):
     """Schema para criação de senha"""
     title: str = Field(..., min_length=1, max_length=200)

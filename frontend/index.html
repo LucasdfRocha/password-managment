@@ -531,6 +531,22 @@
           </div>
         </div>
       </div>
+            <!-- Wallet -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <h2>📦 Wallet (Backup Remoto)</h2>
+        <p class="small-text" style="margin-bottom: 1rem;">
+          Exporte todas as suas senhas criptografadas para um arquivo ou importe de um arquivo existente.<br>
+          O servidor nunca vê suas senhas em texto puro.
+        </p>
+
+        <div style="display:flex; gap:10px;">
+          <button id="btn-wallet-export" class="secondary">Exportar Wallet</button>
+
+          <input type="file" id="wallet-file-input" accept="application/json" style="display:none;">
+          <button id="btn-wallet-import" class="secondary">Importar Wallet</button>
+        </div>
+      </div>
+
     </section>
   </main>
 
@@ -1081,38 +1097,43 @@
   }
 
   async function deletePassword(id, row) {
-    if (!confirm("Tem certeza que deseja excluir esta senha?")) {
-      return;
-    }
-
-    try {
-      setStatus("Excluindo senha...");
-      const resp = await apiRequest(`/passwords/${id}`, {
-        method: "DELETE"
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.detail || "Erro ao deletar senha");
-      }
-
-      allPasswords = allPasswords.filter(p => p.id !== id);
-
-      row.remove();
-      const extra = row.nextElementSibling;
-      if (extra && extra.classList.contains("password-row")) {
-        extra.remove();
-      }
-
-      updateEmptyState();
-
-      const data = await resp.json().catch(() => null);
-      setStatus(data?.message || "Senha deletada com sucesso.");
-    } catch (e) {
-      console.error(e);
-      setStatus("Erro ao deletar senha: " + e.message, "error");
-    }
+  if (!confirm("Tem certeza que deseja excluir esta senha?")) {
+    return;
   }
+
+  try {
+    setStatus("Excluindo senha...");
+    const resp = await apiRequest(`/passwords/${id}`, {
+      method: "DELETE"
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || "Erro ao deletar senha");
+    }
+
+    // pega a linha de detalhe ANTES de remover a principal
+    const extra = row.nextElementSibling;
+    if (extra && extra.classList.contains("password-row")) {
+      extra.remove();
+    }
+
+    // remove a linha principal
+    row.remove();
+
+    // Remove do array local
+    allPasswords = allPasswords.filter(p => p.id !== id);
+
+    updateEmptyState();
+
+    const data = await resp.json().catch(() => null);
+    setStatus(data?.message || "Senha deletada com sucesso.");
+  } catch (e) {
+    console.error(e);
+    setStatus("Erro ao deletar senha: " + e.message, "error");
+  }
+}
+
 
   // ===== Form de criação de senha =====
   formCreatePassword.addEventListener('submit', async (event) => {
@@ -1226,6 +1247,83 @@
   // ===== Inicial =====
   setStatus("Aguardando login.");
   updateEmptyState();
+
+  document.getElementById("btn-wallet-export").addEventListener("click", async () => {
+  if (!masterPasswordPlain) {
+    setStatus("Você precisa estar logado para exportar a wallet.", "error");
+    return;
+  }
+
+  setStatus("Exportando wallet...");
+
+  const resp = await apiRequest("/wallet/export", { method: "GET" });
+  const data = await resp.json();
+
+  const decryptedEntries = [];
+
+  for (const e of data.entries) {
+    const decrypted = await decryptWithMasterPassword(
+      e.encrypted_password,
+      masterPasswordPlain
+    );
+
+    decryptedEntries.push({
+      ...e,
+      password: decrypted
+    });
+  }
+
+  const blob = new Blob(
+    [JSON.stringify({ version: "1.0", entries: decryptedEntries }, null, 2)],
+    { type: "application/json" }
+  );
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "wallet.json";
+  a.click();
+
+  setStatus("Wallet exportada com sucesso.");
+});
+
+document.getElementById("btn-wallet-import").addEventListener("click", () => {
+  document.getElementById("wallet-file-input").click();
+});
+
+document.getElementById("wallet-file-input").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const text = await file.text();
+  const json = JSON.parse(text);
+
+  const payloadToServer = {
+    entries: []
+  };
+
+  for (const e of json.entries) {
+    const encrypted = await encryptWithMasterPassword(
+      e.password,
+      masterPasswordPlain
+    );
+
+    payloadToServer.entries.push({
+      ...e,
+      encrypted_password: encrypted
+    });
+  }
+
+  const resp = await apiRequest("/wallet/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payloadToServer)
+  });
+
+  const result = await resp.json();
+  setStatus(`Wallet importada: ${result.imported} senhas.`);
+  loadPasswords();
+});
+
 </script>
 
 </body>

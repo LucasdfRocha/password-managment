@@ -380,33 +380,60 @@ async def export_wallet(
         raise HTTPException(status_code=500, detail=f"Erro ao exportar wallet: {str(e)}")
 
 
-@app.post("/api/wallet/import", response_model=MessageResponse)
-async def import_wallet(
-    request: WalletImportRequest,
+@app.post("/api/wallet/import")
+async def wallet_import(
+    data: dict,
     pm: PasswordManager = Depends(get_password_manager)
 ):
     """
-    Importa senhas de um arquivo wallet
-    
-    Returns:
-        Mensagem de sucesso com número de entradas importadas
+    Importa entradas já criptografadas no cliente.
+    O servidor nunca vê a senha em texto puro.
+    Formato esperado:
+    {
+      "entries": [
+        {
+          "title": "...",
+          "site": "...",
+          "length": 16,
+          "use_uppercase": true,
+          "use_lowercase": true,
+          "use_digits": true,
+          "use_special": true,
+          "expiration_date": null,
+          "encrypted_password": "base64..."
+        },
+        ...
+      ]
+    }
     """
-    try:
-        count = WalletManager.import_wallet(
-            wallet_file=request.wallet_file,
-            wallet_password=request.wallet_password,
-            encryption_manager=pm.encryption_manager,
-            db_manager=pm.db_manager
-        )
-        return MessageResponse(
-            message=f"{count} entradas importadas com sucesso",
-            success=True
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Arquivo wallet não encontrado")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao importar wallet: {str(e)}")
+    if "entries" not in data or not isinstance(data["entries"], list):
+        raise HTTPException(status_code=400, detail="Formato inválido de wallet (entries ausente).")
 
+    count = 0
+    for entry in data["entries"]:
+        encrypted_b64 = entry.get("encrypted_password")
+        if not encrypted_b64:
+            continue
+
+        try:
+            encrypted_bytes = base64.b64decode(encrypted_b64)
+        except Exception:
+            continue  # ignora entrada com base64 inválido
+
+        pm.create_password(
+            title=entry.get("title", ""),
+            site=entry.get("site", ""),
+            length=entry.get("length", 16),
+            use_uppercase=entry.get("use_uppercase", True),
+            use_lowercase=entry.get("use_lowercase", True),
+            use_digits=entry.get("use_digits", True),
+            use_special=entry.get("use_special", True),
+            expiration_date=entry.get("expiration_date", None),
+            encrypted_password=encrypted_bytes
+        )
+        count += 1
+
+    return {"success": True, "imported": count}
 
 @app.get("/api/health")
 async def health_check():
@@ -418,6 +445,70 @@ async def health_check():
     """
     return {"status": "ok", "message": "API está funcionando"}
 
+
+@app.get("/api/wallet/export")
+async def wallet_export(pm: PasswordManager = Depends(get_password_manager)):
+    """
+    Exporta TODAS as entradas de senha em formato bruto (criptografado).
+    Não descriptografa nada — zero knowledge.
+    """
+    entries = pm.get_all_passwords()
+
+    payload = []
+    for e in entries:
+        payload.append({
+            "title": e.title,
+            "site": e.site,
+            "length": e.length,
+            "use_uppercase": e.use_uppercase,
+            "use_lowercase": e.use_lowercase,
+            "use_digits": e.use_digits,
+            "use_special": e.use_special,
+            "entropy": e.entropy,
+            "expiration_date": e.expiration_date,
+            "created_at": e.created_at,
+            "updated_at": e.updated_at,
+            "encrypted_password": base64.b64encode(e.password).decode("utf-8")
+        })
+
+    return {
+        "exported_at": datetime.now().isoformat(),
+        "entries": payload
+    }
+@app.post("/api/wallet/import")
+async def wallet_import(
+    data: dict,
+    pm: PasswordManager = Depends(get_password_manager)
+):
+    """
+    Importa entradas já criptografadas no cliente.
+    O servidor nunca vê a senha em texto puro.
+    """
+    if "entries" not in data:
+        raise HTTPException(status_code=400, detail="Formato inválido de wallet.")
+
+    count = 0
+    for entry in data["entries"]:
+        encrypted_b64 = entry.get("encrypted_password")
+        if not encrypted_b64:
+            continue
+
+        encrypted_bytes = base64.b64decode(encrypted_b64)
+
+        pm.create_password(
+            title=entry["title"],
+            site=entry["site"],
+            length=entry["length"],
+            use_uppercase=entry["use_uppercase"],
+            use_lowercase=entry["use_lowercase"],
+            use_digits=entry["use_digits"],
+            use_special=entry["use_special"],
+            expiration_date=entry["expiration_date"],
+            encrypted_password=encrypted_bytes
+        )
+        count += 1
+
+    return {"success": True, "imported": count}
 
 if __name__ == "__main__":
     import uvicorn

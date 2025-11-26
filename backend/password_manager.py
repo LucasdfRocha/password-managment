@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 from models import PasswordEntry
-from database import DatabaseManager
+from json_storage import JsonStorageManager
 from encryption import EncryptionManager
 from password_generator import PasswordGenerator
 
@@ -9,16 +9,16 @@ from password_generator import PasswordGenerator
 class PasswordManager:
     """Gerenciador principal de senhas"""
     
-    def __init__(self, master_password: str, db_path: str = "passwords.db"):
+    def __init__(self, master_password: str, storage_file: str = "passwords.enc.json"):
         """
         Inicializa o gerenciador de senhas
         
         Args:
             master_password: Senha mestra do usuário
-            db_path: Caminho do banco de dados
+            storage_file: Caminho do arquivo de armazenamento JSON criptografado
         """
         self.encryption_manager = EncryptionManager(master_password)
-        self.db_manager = DatabaseManager(db_path)
+        self.db_manager = JsonStorageManager(self.encryption_manager, storage_file)
     
     def create_password(
         self,

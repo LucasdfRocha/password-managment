@@ -2,10 +2,12 @@
 *.db
 *.db-journal
 
-# Arquivos de configuração sensíveis
 .salt
 wallet.enc
 *.enc
+
+*.enc.json
+passwords.enc.json
 
 # Python
 __pycache__/

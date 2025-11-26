@@ -1,18 +1,14 @@
-"""
-Modelos de dados para o gerenciador de senhas
-"""
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 
 @dataclass
 class PasswordEntry:
-    """Modelo para uma entrada de senha"""
     id: Optional[int]
     title: str
     site: str
-    password: str  # criptografada
+    password: Union[str, bytes]
     length: int
     use_uppercase: bool
     use_lowercase: bool
@@ -22,4 +18,3 @@ class PasswordEntry:
     expiration_date: Optional[datetime]
     created_at: datetime
     updated_at: datetime
-

@@ -12,6 +12,7 @@ import json
 
 class EncryptionManager:
     """Gerenciador de criptografia usando Fernet (AES 128)"""
+    KDF_ITERATIONS = 100000
     
     SALT_FILE = ".salt"
     
@@ -61,7 +62,7 @@ class EncryptionManager:
             algorithm=hashes.SHA256(),
             length=32,
             salt=self.salt,
-            iterations=100000,
+            iterations=self.KDF_ITERATIONS,
             backend=default_backend()
         )
         key = base64.urlsafe_b64encode(kdf.derive(self.master_password.encode()))
@@ -78,6 +79,39 @@ class EncryptionManager:
     def get_salt(self) -> bytes:
         """Retorna o salt usado"""
         return self.salt
+
+    def get_metadata(self, include_salt: bool = True) -> dict:
+        """Retorna metadados da configuração de criptografia usada por este manager.
+
+        Args:
+            include_salt: Se True inclui o salt codificado em base64.
+
+        Returns:
+            Dicionário com chaves: algorithm, kdf, kdf_hash, kdf_iterations, salt
+        """
+        meta = {
+            "algorithm": "Fernet",
+            "kdf": "PBKDF2HMAC",
+            "kdf_hash": "SHA256",
+            "kdf_iterations": self.KDF_ITERATIONS,
+        }
+        if include_salt:
+            meta["salt"] = base64.b64encode(self.salt).decode() if self.salt else None
+        return meta
+
+    def derive_key(self, length: int = 32) -> bytes:
+        """Deriva uma chave a partir da senha mestra e do salt.
+
+        Essa chave pode ser usada para HMAC/assinatura ou outras operações.
+        """
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=length,
+            salt=self.salt,
+            iterations=self.KDF_ITERATIONS,
+            backend=default_backend(),
+        )
+        return kdf.derive(self.master_password.encode())
 
 
 def create_encryption_manager(master_password: str, salt: bytes = None) -> EncryptionManager:

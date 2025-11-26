@@ -5,10 +5,15 @@ from typing import List
 from encryption import EncryptionManager
 from models import PasswordEntry
 from database import DatabaseManager
+import hashlib
+import hmac
 
 
 class WalletManager:
     """Gerenciador de wallet para exportação/importação de senhas"""
+    APP_NAME = "password-managment"
+    APP_VERSION = "1.0"
+    WALLET_FORMAT_VERSION = "1.0"
     
     @staticmethod
     def export_wallet(
@@ -28,7 +33,7 @@ class WalletManager:
         """
 
         wallet_data = {
-            "version": "1.0",
+            "version": WalletManager.WALLET_FORMAT_VERSION,
             "exported_at": datetime.now().isoformat(),
             "entries": []
         }
@@ -54,18 +59,44 @@ class WalletManager:
 
         json_data = json.dumps(wallet_data, indent=2)
 
+        # Create a separate encryption manager for the exported wallet
         wallet_encryption = EncryptionManager(wallet_password)
 
+        # Metadata about the source encryption (how passwords are stored in the app)
+        # Use the runtime EncryptionManager metadata so the export reflects actual config
+        source_meta = encryption_manager.get_metadata()
+
+        # Encrypt the exported JSON using the wallet password
         encrypted_data = wallet_encryption.encrypt(json_data)
 
+        # Wallet-level metadata (how the wallet file itself is encrypted)
+        wallet_meta = {
+            "wallet_format_version": WalletManager.WALLET_FORMAT_VERSION,
+            "app": {
+                "name": WalletManager.APP_NAME,
+                "version": WalletManager.APP_VERSION
+            },
+            "exported_at": datetime.now().isoformat(),
+            "source_encryption": source_meta,
+            "wallet_encryption": wallet_encryption.get_metadata()
+        }
+
         wallet_file_data = {
-            "salt": base64.b64encode(wallet_encryption.get_salt()).decode(),
+            "meta": wallet_meta,
             "data": base64.b64encode(encrypted_data).decode()
         }
-        
+
+        # Create deterministic payload for signing (sort keys, no extra whitespace)
+        payload = json.dumps(wallet_file_data, separators=(",", ":"), sort_keys=True).encode()
+
+        # Derive signing key from wallet password and salt and compute HMAC-SHA256
+        signing_key = wallet_encryption.derive_key()
+        signature = hmac.new(signing_key, payload, hashlib.sha256).digest()
+        wallet_file_data["hmac"] = base64.b64encode(signature).decode()
+
         with open(output_file, 'w') as f:
             json.dump(wallet_file_data, f, indent=2)
-        
+
         print(f"Wallet exportado com sucesso para {output_file}")
     
     @staticmethod
@@ -89,14 +120,48 @@ class WalletManager:
         """
         with open(wallet_file, 'r') as f:
             wallet_file_data = json.load(f)
-        
-        salt = base64.b64decode(wallet_file_data["salt"])
-        encrypted_data = base64.b64decode(wallet_file_data["data"])
-        
-        wallet_encryption = EncryptionManager(wallet_password, salt)
-        
+
+        # Support both legacy format (top-level 'salt' + 'data') and new format with 'meta'
+        meta = wallet_file_data.get("meta", {})
+
+        # Determine salt and encrypted payload
+        salt_b64 = None
+        if "data" not in wallet_file_data:
+            raise ValueError("Wallet file missing 'data' field")
+
+        encrypted_data_b64 = wallet_file_data.get("data")
+
+        # Prefer explicit salt in meta -> wallet_encryption.salt
+        salt_b64 = meta.get("wallet_encryption", {}).get("salt") or wallet_file_data.get("salt")
+
+        if salt_b64:
+            salt = base64.b64decode(salt_b64)
+            wallet_encryption = EncryptionManager(wallet_password, salt)
+        else:
+            # No salt provided: try to initialize without explicit salt
+            wallet_encryption = EncryptionManager(wallet_password)
+
+        # Verify HMAC if present BEFORE attempting to decrypt
+        hmac_b64 = wallet_file_data.get("hmac")
+        if hmac_b64:
+            provided = base64.b64decode(hmac_b64)
+            # Recreate deterministic payload (same as export)
+            verify_payload = json.dumps({k: wallet_file_data[k] for k in ("data","meta")}, separators=(",", ":"), sort_keys=True).encode()
+            verify_key = wallet_encryption.derive_key()
+            expected = hmac.new(verify_key, verify_payload, hashlib.sha256).digest()
+            if not hmac.compare_digest(provided, expected):
+                raise ValueError("HMAC mismatch: wallet file may have been tampered with or wrong password")
+
+        encrypted_data = base64.b64decode(encrypted_data_b64)
+
         json_data = wallet_encryption.decrypt(encrypted_data)
         wallet_data = json.loads(json_data)
+
+        # If meta exists, optionally validate wallet format
+        if meta:
+            wallet_format = meta.get("wallet_format_version")
+            if wallet_format and wallet_format != WalletManager.WALLET_FORMAT_VERSION:
+                print(f"Aviso: formato de wallet diferente ({wallet_format}), import may be partial")
         
         imported_count = 0
         for entry_data in wallet_data["entries"]:

@@ -1,38 +1,79 @@
 from Crypto.Cipher import AES
+from Crypto.Protocol.KDF import PBKDF2, HKDF
 from Crypto.Hash import SHA256
 import os
+import base64
+from typing import Union
 
 
 class EncryptionManager:
-    NONCE_SIZE = 12   # 96 bits para GCM
-    TAG_SIZE = 16     # 128 bits
+    NONCE_SIZE = 12
+    TAG_SIZE = 16
+    KEY_SIZE = 32
+    SALT_SIZE = 16
+    KDF_ITERATIONS = 300000
 
-    def __init__(self, master_password: str):
-        h = SHA256.new()
-        h.update(master_password.encode())
-        self.key = h.digest()
+    def __init__(self, master_password: str, salt: Union[bytes, str, None] = None):
+        self.master_password = master_password
+        if salt is None:
+            self.salt = os.urandom(self.SALT_SIZE)
+        elif isinstance(salt, str):
+            self.salt = base64.b64decode(salt)
+        else:
+            self.salt = salt
+
+        self.key = PBKDF2(
+            self.master_password.encode(),
+            self.salt,
+            dkLen=self.KEY_SIZE,
+            count=self.KDF_ITERATIONS,
+            hmac_hash_module=SHA256
+        )
 
     def encrypt(self, plaintext: str) -> bytes:
         plaintext_bytes = plaintext.encode("utf-8")
 
         nonce = os.urandom(self.NONCE_SIZE)
-        cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
+        cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce, mac_len=self.TAG_SIZE)
+
         ciphertext, tag = cipher.encrypt_and_digest(plaintext_bytes)
 
-        return nonce + tag + ciphertext
+        return self.salt + nonce + tag + ciphertext
 
     def decrypt(self, blob: bytes) -> str:
-        if len(blob) < self.NONCE_SIZE + self.TAG_SIZE:
-            raise ValueError("Ciphertext muito curto")
+        offset = 0
+        salt = blob[offset:offset+self.SALT_SIZE]
+        offset += self.SALT_SIZE
 
-        nonce = blob[:self.NONCE_SIZE]
-        tag = blob[self.NONCE_SIZE:self.NONCE_SIZE + self.TAG_SIZE]
-        ciphertext = blob[self.NONCE_SIZE + self.TAG_SIZE:]
+        nonce = blob[offset:offset+self.NONCE_SIZE]
+        offset += self.NONCE_SIZE
 
-        cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
+        tag = blob[offset:offset+self.TAG_SIZE]
+        offset += self.TAG_SIZE
+
+        ciphertext = blob[offset:]
+
+        key = PBKDF2(
+            self.master_password.encode(),
+            salt,
+            dkLen=self.KEY_SIZE,
+            count=self.KDF_ITERATIONS,
+            hmac_hash_module=SHA256
+        )
+
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=self.TAG_SIZE)
         plaintext = cipher.decrypt_and_verify(ciphertext, tag)
 
         return plaintext.decode("utf-8")
+
+    def derive_key(self) -> bytes:
+        return HKDF(
+            master=self.key,
+            key_len=self.KEY_SIZE,
+            salt=self.salt,
+            hashmod=SHA256,
+            context=b"hmac_signing_key"
+        )
 
     def get_metadata(self):
         return {
@@ -40,8 +81,6 @@ class EncryptionManager:
             "kdf": "PBKDF2",
             "kdf_hash": "SHA256",
             "kdf_iterations": self.KDF_ITERATIONS,
+            "salt": base64.b64encode(self.salt).decode("utf-8"),
+            "key_size": self.KEY_SIZE * 8,
         }
-
-
-def create_encryption_manager(master_password: str, salt: bytes = None) -> EncryptionManager:
-    return EncryptionManager(master_password, salt)

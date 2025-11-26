@@ -310,7 +310,7 @@ class PasswordManagerGUI:
             site_label.grid(row=1, column=0, sticky="w", padx=15, pady=(0, 5))
 
         # Informações adicionais
-        info_text = f"📊 Segurança: {password.get('security_level', 'N/A')}"
+        info_text = f"📊 Segurança: {password.get('entropy_level', 'N/A')}"
         if password.get("expiration_date"):
             info_text += f" | 📅 Expira: {password['expiration_date']}"
 
@@ -391,7 +391,7 @@ class PasswordManagerGUI:
                     ("Site:", data.get("site", "N/A")),
                     ("Usuário:", data.get("username", "N/A")),
                     ("Senha:", data.get("password", "N/A")),
-                    ("Segurança:", data.get("security_level", "N/A")),
+                    ("Segurança:", data.get("entropy_level", "N/A")),
                     ("Entropia:", f"{data.get('entropy', 0):.2f} bits"),
                     ("Expira em:", data.get("expiration_date", "Nunca")),
                 ]
@@ -746,7 +746,7 @@ class PasswordManagerGUI:
                     password_display.insert(
                         "1.0",
                         f"Senha: {result['password']}\n"
-                        f"Segurança: {result['security_level']}\n"
+                        f"Segurança: {result['entropy_level']}\n"
                         f"Entropia: {result['entropy']:.2f} bits",
                     )
                 else:

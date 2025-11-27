@@ -493,7 +493,7 @@ async def wallet_import(
           "use_digits": true,
           "use_special": true,
           "expiration_date": null,
-          "encrypted_password": "base64..."
+          "encrypted_password": "encoded-string"
         },
         ...
       ]
@@ -531,16 +531,6 @@ async def wallet_import(
 
     return {"success": True, "imported": count}
 
-
-@app.get("/api/health")
-async def health_check():
-    """
-    Endpoint de health check
-    
-    Returns:
-        Status da API
-    """
-    return {"status": "ok", "message": "API está funcionando"}
 
 
 if __name__ == "__main__":

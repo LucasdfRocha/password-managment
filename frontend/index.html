@@ -314,6 +314,18 @@
       background: #059669;
     }
 
+    .edit-btn {
+      margin-left: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.813rem;
+      background: #667eea;
+      color: white;
+    }
+
+    .edit-btn:hover {
+      background: #4c51bf;
+    }
+
     .copy-btn.copied {
       background: #6366f1;
     }
@@ -460,7 +472,7 @@
     <section id="app-section" class="hidden">
       <div class="card">
         <div class="top-bar">
-          <h2>Bem-vindo! 👋 <span id="current-username"></span></h2>
+          <h2>Bem-vindo <span id="current-username"></span>! 👋 </h2>
           <button class="secondary" id="btn-logout">Sair</button>
         </div>
 
@@ -914,7 +926,7 @@
     try {
       await navigator.clipboard.writeText(text);
       const originalText = button.textContent;
-      button.textContent = '✓ Copiado!';
+      button.textContent = 'Copiado!';
       button.classList.add('copied');
       setTimeout(() => {
         button.textContent = originalText;
@@ -995,6 +1007,100 @@
       okBtn.addEventListener('click', onOk);
       cancelBtn.addEventListener('click', onCancel);
       input.focus();
+    });
+  }
+
+  // ===== Confirm modal helper =====
+  function showConfirmModal({ title = 'Confirmar', message = 'Tem certeza?' } = {}) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('confirm-modal');
+      const titleEl = document.getElementById('confirm-modal-title');
+      const msgEl = document.getElementById('confirm-modal-message');
+      const okBtn = document.getElementById('confirm-ok');
+      const cancelBtn = document.getElementById('confirm-cancel');
+
+      titleEl.textContent = title;
+      msgEl.textContent = message;
+
+      modal.classList.remove('hidden');
+      modal.style.display = 'flex';
+      modal.style.visibility = 'visible';
+
+      function cleanup() {
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        document.removeEventListener('keydown', onKeyDown);
+        modal.style.display = 'none';
+        modal.style.visibility = '';
+      }
+
+      function onKeyDown(ev) {
+        if (ev.key === 'Enter') onOk();
+        if (ev.key === 'Escape') onCancel();
+      }
+      document.addEventListener('keydown', onKeyDown);
+
+      function onOk() { cleanup(); resolve(true); }
+      function onCancel() { cleanup(); resolve(false); }
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+    });
+  }
+
+  // ===== Edit-password modal helper =====
+  function showEditPasswordModal(entry) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('edit-password-modal');
+      const titleEl = document.getElementById('edit-modal-title');
+      const inputTitle = document.getElementById('edit-title');
+      const inputSite = document.getElementById('edit-site');
+      const inputPassword = document.getElementById('edit-password-input');
+      const inputExpiration = document.getElementById('edit-expiration');
+      const okBtn = document.getElementById('edit-password-ok');
+      const cancelBtn = document.getElementById('edit-password-cancel');
+
+      titleEl.textContent = 'Editar senha';
+      inputTitle.value = entry.title || '';
+      inputSite.value = entry.site || '';
+      inputPassword.value = entry._decrypted_preview || '';
+      inputExpiration.value = entry.expiration_date ? (new Date(entry.expiration_date)).toISOString().slice(0,16) : '';
+
+      modal.classList.remove('hidden');
+      modal.style.display = 'flex';
+      modal.style.visibility = 'visible';
+
+      function cleanup() {
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        document.removeEventListener('keydown', onKeyDown);
+        modal.style.display = 'none';
+        modal.style.visibility = '';
+      }
+
+      function onKeyDown(ev) {
+        if (ev.key === 'Enter') onOk();
+        if (ev.key === 'Escape') onCancel();
+      }
+      document.addEventListener('keydown', onKeyDown);
+
+      function onOk() {
+        const val = inputPassword.value;
+        const t = inputTitle.value.trim();
+        const s = inputSite.value.trim();
+        const exp = inputExpiration.value ? new Date(inputExpiration.value).toISOString() : null;
+        if (!t || !s) { setStatus('Título e site são obrigatórios.', 'error'); return; }
+        cleanup();
+        resolve({ title: t, site: s, password: val, expiration_date: exp });
+      }
+
+      function onCancel() { cleanup(); resolve(null); }
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+
+      // focus
+      setTimeout(() => inputPassword.focus(), 20);
     });
   }
 
@@ -1273,6 +1379,16 @@
 
   async function viewPassword(id, row) {
     try {
+      // Toggle: if detail row exists, remove it ("unsee")
+      const existing = row.nextElementSibling;
+      const viewBtn = row.querySelector('.secondary');
+      if (existing && existing.classList && existing.classList.contains('password-row')) {
+        existing.remove();
+        if (viewBtn) viewBtn.textContent = 'Ver';
+        setStatus('Visualização fechada.');
+        return;
+      }
+
       if (!masterPasswordPlain) {
         setStatus("Senha mestra não está disponível no cliente.", "error");
         return;
@@ -1302,9 +1418,15 @@
 
       setStatus("Senha carregada.");
 
-      const existing = row.nextElementSibling;
-      if (existing && existing.classList.contains("password-row")) {
-        existing.remove();
+      // Store a quick decrypted preview on the in-memory entry for later edits
+      try {
+        const entryObj = allPasswords.find(p => p.id === id);
+        if (entryObj) entryObj._decrypted_preview = decrypted;
+      } catch (e) { /* ignore */ }
+      // remove any previous detail row just in case (we already checked above)
+      const prev = row.nextElementSibling;
+      if (prev && prev.classList && prev.classList.contains("password-row")) {
+        prev.remove();
       }
 
       const tr = document.createElement('tr');
@@ -1317,16 +1439,29 @@
 
       td.innerHTML = `
         <div>
-          <strong>Senha descriptografada (no cliente):</strong>
+          <strong>Senha:</strong>
           <div class="password-value">
             ${decrypted}
-            <button class="copy-btn" onclick="copyToClipboard('${escaped}', this)">📋 Copiar</button>
+            <button class="copy-btn" onclick="copyToClipboard('${escaped}', this)"> Copiar</button>
           </div>
         </div>
       `;
 
       tr.appendChild(td);
       row.parentNode.insertBefore(tr, row.nextSibling);
+
+      // Add an Edit button under the revealed password
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Editar';
+      editBtn.className = 'edit-btn';
+      editBtn.style.marginLeft = '0.5rem';
+      editBtn.addEventListener('click', () => startEditPassword(id));
+
+      // append edit button next to copy button
+      const pwValEl = td.querySelector('.password-value');
+      if (pwValEl) pwValEl.appendChild(editBtn);
+
+      if (viewBtn) viewBtn.textContent = 'Esconder';
 
     } catch (e) {
       console.error(e);
@@ -1335,7 +1470,8 @@
   }
 
   async function deletePassword(id, row) {
-  if (!confirm("Tem certeza que deseja excluir esta senha?")) {
+  const ok = await showConfirmModal({ title: 'Confirmar exclusão', message: 'Tem certeza que deseja excluir esta senha?' });
+  if (!ok) {
     return;
   }
 
@@ -1369,6 +1505,122 @@
   } catch (e) {
     console.error(e);
     setStatus("Erro ao deletar senha: " + e.message, "error");
+  }
+}
+
+// ===== Start edit flow for a password =====
+async function startEditPassword(id) {
+  if (!masterPasswordPlain) {
+    setStatus("Senha mestra não está disponível no cliente.", "error");
+    return;
+  }
+
+  const entry = allPasswords.find(p => p.id === id);
+  if (!entry) {
+    setStatus('Entrada não encontrada.', 'error');
+    return;
+  }
+
+  // Ensure we have a decrypted preview for the password (used to prefill the modal)
+  try {
+    if (!entry._decrypted_preview) {
+      const resp = await apiRequest(`/passwords/${id}`, { method: 'GET' });
+      if (!resp.ok) throw new Error('Erro ao buscar senha para edição');
+      const data = await resp.json();
+      entry._decrypted_preview = await decryptWithMasterPassword(data.encrypted_password, masterPasswordPlain);
+    }
+  } catch (e) {
+    console.error(e);
+    setStatus('Erro ao obter senha para edição: ' + e.message, 'error');
+    return;
+  }
+
+  const result = await showEditPasswordModal(entry);
+  if (!result) {
+    setStatus('Edição cancelada pelo usuário.');
+    return;
+  }
+
+  setStatus('Criptografando nova senha...');
+  let encryptedBase64;
+  try {
+    encryptedBase64 = await encryptWithMasterPassword(result.password || '', masterPasswordPlain);
+  } catch (e) {
+    console.error(e);
+    setStatus('Erro ao criptografar nova senha: ' + e.message, 'error');
+    return;
+  }
+
+  const payload = {
+    title: result.title,
+    site: result.site,
+    length: entry.length || 0,
+    use_uppercase: entry.use_uppercase,
+    use_lowercase: entry.use_lowercase,
+    use_digits: entry.use_digits,
+    use_special: entry.use_special,
+    expiration_date: result.expiration_date,
+    encrypted_password: encryptedBase64
+  };
+
+  try {
+    setStatus('Atualizando senha no servidor...');
+    const resp = await apiRequest(`/passwords/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'Erro ao atualizar senha');
+    }
+
+    const updated = await resp.json().catch(() => null);
+
+    // Update local array
+    entry.title = payload.title;
+    entry.site = payload.site;
+    entry.expiration_date = payload.expiration_date;
+    entry.encrypted_password = payload.encrypted_password;
+    entry._decrypted_preview = result.password || '';
+
+    // Update DOM row
+    const rows = Array.from(tbodyPasswords.querySelectorAll('tr'));
+    for (const r of rows) {
+      if (String(r.dataset.id) === String(id)) {
+        const tds = r.children;
+        if (tds[1]) tds[1].textContent = entry.title;
+        if (tds[2]) tds[2].textContent = entry.site;
+        if (tds[4]) tds[4].textContent = formatDate(entry.expiration_date);
+        break;
+      }
+    }
+
+    // If detail row is open, update displayed password
+    const mainRow = tbodyPasswords.querySelector(`tr[data-id="${id}"]`);
+    if (mainRow) {
+      const detail = mainRow.nextElementSibling;
+      if (detail && detail.classList && detail.classList.contains('password-row')) {
+        const pwDiv = detail.querySelector('.password-value');
+        if (pwDiv) {
+          const escaped = (entry._decrypted_preview || '').replace(/'/g, "\\'");
+          pwDiv.innerHTML = `${entry._decrypted_preview}<button class="copy-btn" onclick="copyToClipboard('${escaped}', this)"> Copiar</button>`;
+          // add edit button back
+          const editBtn = document.createElement('button');
+          editBtn.textContent = 'Editar';
+          editBtn.className = 'primary';
+          editBtn.style.marginLeft = '0.5rem';
+          editBtn.addEventListener('click', () => startEditPassword(id));
+          pwDiv.appendChild(editBtn);
+        }
+      }
+    }
+
+    setStatus('Senha atualizada com sucesso.');
+  } catch (e) {
+    console.error(e);
+    setStatus('Erro ao atualizar senha: ' + e.message, 'error');
   }
 }
 
@@ -1692,6 +1944,44 @@ document.getElementById("wallet-file-input").addEventListener("change", async (e
 </script>
 
   <!-- Wallet password modal (placed at end for correct stacking) -->
+  <!-- Confirm delete modal -->
+  <div id="confirm-modal" class="hidden" role="dialog" aria-modal="true" style="position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:10000;display:none;">
+    <div style="background:white;padding:1rem;border-radius:12px;min-width:300px;max-width:520px;box-shadow:0 16px 48px rgba(2,6,23,0.4);">
+      <h3 id="confirm-modal-title" style="margin-bottom:0.5rem;font-size:1.05rem;">Confirmar</h3>
+      <div id="confirm-modal-message" style="margin-bottom:0.75rem;color:#374151;"></div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button id="confirm-cancel" class="secondary">Cancelar</button>
+        <button id="confirm-ok" class="danger">Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit password modal -->
+  <div id="edit-password-modal" class="hidden" role="dialog" aria-modal="true" style="position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:10001;display:none;">
+    <div style="background:white;padding:1.25rem;border-radius:12px;min-width:320px;max-width:640px;box-shadow:0 16px 48px rgba(2,6,23,0.4);">
+      <h3 id="edit-modal-title" style="margin-bottom:0.5rem;font-size:1.05rem;">Editar senha</h3>
+      <div style="margin-bottom:0.5rem;">
+        <label for="edit-title" style="display:block;margin-bottom:0.25rem;">Título</label>
+        <input id="edit-title" type="text" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="margin-bottom:0.5rem;">
+        <label for="edit-site" style="display:block;margin-bottom:0.25rem;">Site</label>
+        <input id="edit-site" type="text" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="margin-bottom:0.5rem;">
+        <label for="edit-password-input" style="display:block;margin-bottom:0.25rem;">Senha</label>
+        <input id="edit-password-input" type="text" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="margin-bottom:0.75rem;">
+        <label for="edit-expiration" style="display:block;margin-bottom:0.25rem;">Data de expiração (opcional)</label>
+        <input id="edit-expiration" type="datetime-local" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button id="edit-password-cancel" class="secondary">Cancelar</button>
+        <button id="edit-password-ok" class="primary">Salvar</button>
+      </div>
+    </div>
+  </div>
   <div id="wallet-password-modal" class="hidden" role="dialog" aria-modal="true" style="position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:9999;display:none;">
     <div style="background:white;padding:1.25rem;border-radius:12px;min-width:320px;max-width:520px;box-shadow:0 16px 48px rgba(2,6,23,0.4);">
       <h3 id="wallet-modal-title" style="margin-bottom:0.5rem;font-size:1.05rem;">Senha do Wallet</h3>

@@ -3,7 +3,13 @@ from typing import List, Optional, Tuple
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+local_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, local_dir)
+
+
+sys.path.insert(0, os.path.join(local_dir, "..", "backend"))
+
 from password_generator import PasswordGenerator
 from encryption import EncryptionManager
 from Crypto.Cipher import AES

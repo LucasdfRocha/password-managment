@@ -4,10 +4,23 @@ import os
 from datetime import datetime
 from getpass import getpass
 from typing import Optional
-# Adiciona o diretório backend ao path para importar password_generator
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+import importlib.util
+
+backend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'backend')
+sys.path.insert(0, backend_dir)
 from password_generator import PasswordGenerator
-from password_manager import JSONPasswordManager, PasswordEntry
+
+sys.path.remove(backend_dir)
+
+local_dir = os.path.dirname(os.path.abspath(__file__))
+local_password_manager_path = os.path.join(local_dir, 'password_manager.py')
+
+spec = importlib.util.spec_from_file_location("local_password_manager", local_password_manager_path)
+local_password_manager = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(local_password_manager)
+
+JSONPasswordManager = local_password_manager.JSONPasswordManager
+PasswordEntry = local_password_manager.PasswordEntry
 
 
 def print_menu():

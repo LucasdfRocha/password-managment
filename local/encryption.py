@@ -66,14 +66,6 @@ class EncryptionManager:
 
         return plaintext.decode("utf-8")
 
-    def derive_key(self) -> bytes:
-        return HKDF(
-            master=self.key,
-            key_len=self.KEY_SIZE,
-            salt=self.salt,
-            hashmod=SHA256,
-            context=b"hmac_signing_key"
-        )
 
     def get_metadata(self):
         return {

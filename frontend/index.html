@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerenciador de Senhas</title>
+  <link rel="stylesheet" href="stylesheet.css">
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <h1>🔐 Gerenciador de Senhas</h1>
+      <span id="status"></span>
+    </div>
+  </header>
+
+
+  <main>
+    <!-- Login/Register -->
+    <section id="login-section">
+      <div class="card login-card">
+        <h2 id="form-title">Login</h2>
+        <div id="login-form">
+          <div class="form-group">
+            <label for="username">Usuário</label>
+            <input type="text" id="username" placeholder="Seu nome de usuário">
+          </div>
+          <div class="form-group">
+            <label for="password">Senha</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="password" placeholder="Sua senha">
+              <button type="button" class="show-password-btn" id="toggle-password">Mostrar</button>
+            </div>
+          </div>
+          <button class="primary" id="btn-login" style="width: 100%; margin-bottom: 1rem;">Entrar</button>
+          <button class="secondary" id="btn-toggle-register" style="width: 100%;">Não tem conta? Registre-se</button>
+        </div>
+
+        <div id="register-form" class="hidden">
+          <div class="form-group">
+            <label for="register-username">Usuário</label>
+            <input type="text" id="register-username" placeholder="Escolha um nome de usuário (3+ caracteres)">
+          </div>
+          <div class="form-group">
+            <label for="register-email">Email</label>
+            <input type="email" id="register-email" placeholder="seu@email.com">
+          </div>
+          <div class="form-group">
+            <label for="register-password">Senha</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="register-password" placeholder="Senha (8+ caracteres)">
+              <button type="button" class="show-password-btn" id="toggle-register-password">Mostrar</button>
+            </div>
+          </div>
+          <button class="primary" id="btn-register" style="width: 100%; margin-bottom: 1rem;">Registrar</button>
+          <button class="secondary" id="btn-toggle-login" style="width: 100%;">Já tem conta? Faça login</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- App -->
+    <section id="app-section" class="hidden">
+      <div class="card">
+        <div class="top-bar">
+          <h2>Bem-vindo <span id="current-username"></span>! 👋 </h2>
+          <button class="secondary" id="btn-logout">Sair</button>
+        </div>
+
+        <!-- Form de criação de senha -->
+        <div class="form-section">
+          <h2 style="font-size: 1.25rem; margin-bottom: 1rem;">✨ Criar nova senha</h2>
+          <form id="form-create-password">
+            <div class="form-group">
+              <label for="title">Título</label>
+              <input type="text" id="title" required placeholder="Ex.: Gmail pessoal">
+            </div>
+
+            <div class="form-group">
+              <label for="site">Site / Serviço</label>
+              <input type="text" id="site" required placeholder="Ex.: https://mail.google.com">
+            </div>
+
+            <div class="form-group">
+              <label for="length">Tamanho da senha (se for gerada)</label>
+              <input type="number" id="length" min="4" max="128" value="16">
+            </div>
+
+            <div class="form-group">
+              <label>Caracteres incluídos</label>
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-uppercase" checked>
+                  Maiúsculas (A-Z)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-lowercase" checked>
+                  Minúsculas (a-z)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-digits" checked>
+                  Dígitos (0-9)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-special" checked>
+                  Especiais (!@#$...)
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="expiration-date">Data de expiração (opcional)</label>
+              <input type="datetime-local" id="expiration-date">
+            </div>
+
+            <div class="form-group">
+              <label for="custom-password">Senha customizada (opcional)</label>
+              <input type="text" id="custom-password" placeholder="Deixe vazio para gerar automaticamente">
+              <div class="password-strength-meter">
+                <div class="password-strength-bar" id="password-strength-bar"></div>
+              </div>
+              <div id="password-strength-text" class="small-text" style="margin-top: 0.25rem;"></div>
+            </div>
+
+            <button type="submit" class="primary">Criar senha</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Lista de senhas -->
+      <div class="card">
+        <h2>🔑 Senhas salvas</h2>
+        <p class="small-text" style="margin-bottom: 1.5rem;">
+          A senha descriptografada só é mostrada quando você clica em <strong>Ver</strong>.
+        </p>
+        
+        <div class="search-box">
+          <input type="text" id="search-passwords" placeholder="Buscar senhas por título ou site...">
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Título</th>
+                <th>Site</th>
+                <th>Segurança</th>
+                <th>Expira em</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="passwords-table-body">
+              <!-- Linhas preenchidas via JS -->
+            </tbody>
+          </table>
+          <div id="empty-state" class="empty-state hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <p>Nenhuma senha encontrada</p>
+            <p class="small-text">Crie sua primeira senha usando o formulário acima</p>
+          </div>
+        </div>
+      </div>
+            <!-- Wallet -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <h2>📦 Wallet (Backup Remoto)</h2>
+        <p class="small-text" style="margin-bottom: 1rem;">
+          Exporte todas as suas senhas criptografadas para um arquivo ou importe de um arquivo existente.<br>
+          Mantenha este arquivo seguro, pois ele contém todas as suas senhas em formato criptografado.
+        </p>
+
+        <div style="display:flex; gap:10px;">
+          <button id="btn-wallet-export" class="secondary">Exportar Wallet</button>
+
+          <input type="file" id="wallet-file-input" accept="application/json" style="display:none;">
+          <button id="btn-wallet-import" class="secondary">Importar Wallet</button>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <script src="js/globals.js"></script>
+  <script src="js/helpers.js"></script>
+  <script src="js/crypto.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/modals.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/passwords.js"></script>
+  <script src="js/wallet.js"></script>
+  <script src="app.js"></script>
+
+  <!-- Confirm delete modal -->
+  <div id="confirm-modal" class="hidden" role="dialog" aria-modal="true" style="position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:10000;display:none;">
+    <div style="background:white;padding:1rem;border-radius:12px;min-width:300px;max-width:520px;box-shadow:0 16px 48px rgba(2,6,23,0.4);">
+      <h3 id="confirm-modal-title" style="margin-bottom:0.5rem;font-size:1.05rem;">Confirmar</h3>
+      <div id="confirm-modal-message" style="margin-bottom:0.75rem;color:#374151;"></div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button id="confirm-cancel" class="secondary">Cancelar</button>
+        <button id="confirm-ok" class="danger">Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit password modal -->
+  <div id="edit-password-modal" class="hidden" role="dialog" aria-modal="true" style="position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:10001;display:none;">
+    <div style="background:white;padding:1.25rem;border-radius:12px;min-width:320px;max-width:640px;box-shadow:0 16px 48px rgba(2,6,23,0.4);">
+      <h3 id="edit-modal-title" style="margin-bottom:0.5rem;font-size:1.05rem;">Editar senha</h3>
+      <div style="margin-bottom:0.5rem;">
+        <label for="edit-title" style="display:block;margin-bottom:0.25rem;">Título</label>
+        <input id="edit-title" type="text" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="margin-bottom:0.5rem;">
+        <label for="edit-site" style="display:block;margin-bottom:0.25rem;">Site</label>
+        <input id="edit-site" type="text" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="margin-bottom:0.5rem;">
+        <label for="edit-password-input" style="display:block;margin-bottom:0.25rem;">Senha</label>
+        <input id="edit-password-input" type="text" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="margin-bottom:0.75rem;">
+        <label for="edit-expiration" style="display:block;margin-bottom:0.25rem;">Data de expiração (opcional)</label>
+        <input id="edit-expiration" type="datetime-local" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button id="edit-password-cancel" class="secondary">Cancelar</button>
+        <button id="edit-password-ok" class="primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+  <!-- Wallet password modal -->
+  <div id="wallet-password-modal" class="hidden" role="dialog" aria-modal="true" style="position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:9999;display:none;">
+    <div style="background:white;padding:1.25rem;border-radius:12px;min-width:320px;max-width:520px;box-shadow:0 16px 48px rgba(2,6,23,0.4);">
+      <h3 id="wallet-modal-title" style="margin-bottom:0.5rem;font-size:1.05rem;">Senha do Wallet</h3>
+      <div style="margin-bottom:0.75rem;">
+        <label for="wallet-password-input" style="display:block;margin-bottom:0.25rem;">Senha do wallet</label>
+        <input id="wallet-password-input" type="password" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div id="wallet-password-confirm-container" style="display:none;margin-bottom:0.75rem;">
+        <label for="wallet-password-confirm" style="display:block;margin-bottom:0.25rem;">Confirme a senha</label>
+        <input id="wallet-password-confirm" type="password" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button id="wallet-password-cancel" class="secondary">Cancelar</button>
+        <button id="wallet-password-ok" class="primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

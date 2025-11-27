@@ -17,6 +17,7 @@ class PasswordCreate(BaseModel):
     use_special: bool = Field(default=True)
     expiration_date: Optional[datetime] = None
     custom_password: Optional[str] = None
+    encrypted_password: Optional[str] = None
 
 
 class PasswordUpdate(BaseModel):
@@ -53,9 +54,22 @@ class PasswordResponse(BaseModel):
         from_attributes = True
 
 
-class PasswordDetailResponse(PasswordResponse):
-    """Schema de resposta para senha com a senha descriptografada"""
-    password: str
+class PasswordDetailResponse(BaseModel):
+    id: int
+    title: str
+    site: str
+    encrypted_password: str  # base64
+    length: int
+    use_uppercase: bool
+    use_lowercase: bool
+    use_digits: bool
+    use_special: bool
+    entropy: float
+    entropy_level: str
+    expiration_date: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
 
 
 class MasterPasswordRequest(BaseModel):
@@ -96,4 +110,25 @@ class MessageResponse(BaseModel):
     """Schema para mensagens de resposta"""
     message: str
     success: bool = True
+
+
+class UserRegister(BaseModel):
+    """Schema para registro de novo usuário"""
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., min_length=5, max_length=200)
+    password: str = Field(..., min_length=8)
+
+
+class UserLogin(BaseModel):
+    """Schema para login de usuário"""
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class LoginResponse(BaseModel):
+    """Schema de resposta de login"""
+    token: str
+    user_id: int
+    username: str
+    message: str
 

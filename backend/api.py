@@ -1,25 +1,26 @@
 """
-API REST para o gerenciador de senhas
+API REST para o gerenciador de senhas com suporte a múltiplos usuários
 """
+import base64
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from datetime import datetime
 
 from schemas import (
     PasswordCreate, PasswordUpdate, PasswordResponse, PasswordDetailResponse,
-    MasterPasswordRequest, WalletExportRequest, WalletImportRequest,
+    UserRegister, UserLogin, LoginResponse,
+    WalletExportRequest, WalletImportRequest,
     PasswordGenerateRequest, PasswordGenerateResponse, MessageResponse
 )
-from auth import auth_manager
+from auth import auth_manager, SessionInfo
 from password_manager import PasswordManager
 from password_generator import PasswordGenerator
-from wallet import WalletManager
 
 app = FastAPI(
     title="Password Manager API",
-    description="API REST para gerenciamento de senhas com criptografia",
-    version="1.0.0"
+    description="API REST para gerenciamento de senhas com criptografia e multi-usuário",
+    version="2.0.0"
 )
 
 app.add_middleware(
@@ -31,41 +32,109 @@ app.add_middleware(
 )
 
 
-def get_password_manager(token: str = Header(..., alias="X-Session-Token")) -> PasswordManager:
+def get_user_from_token(token: str = Header(..., alias="X-Session-Token")) -> Tuple[PasswordManager, int]:
     """
-    Dependency para obter o PasswordManager da sessão
+    Dependency para obter o usuário e PasswordManager da sessão
+    
+    Valida:
+    - Se o token é válido
+    - Se a sessão não expirou
+    - Retorna user_id para garantir isolamento de dados
     
     Args:
         token: Token de sessão do header
         
     Returns:
-        PasswordManager
+        Tupla (PasswordManager, user_id)
         
     Raises:
-        HTTPException: Se o token for inválido
+        HTTPException: Se o token for inválido ou expirado
     """
+    is_valid, user_id, message = auth_manager.validate_session(token)
+    
+    if not is_valid:
+        raise HTTPException(status_code=401, detail=message)
+    
     pm = auth_manager.get_password_manager(token)
     if not pm:
-        raise HTTPException(status_code=401, detail="Token de sessão inválido ou expirado")
-    return pm
+        raise HTTPException(status_code=401, detail="Sessão inválida")
+    
+    return pm, user_id
 
 
-@app.post("/api/auth/login", response_model=dict)
-async def login(request: MasterPasswordRequest):
+# ===== AUTHENTICATION ENDPOINTS =====
+
+@app.post("/api/auth/register", response_model=MessageResponse)
+async def register(request: UserRegister):
+    """
+    Registra um novo usuário
+    
+    Validações:
+    - Username: 3+ caracteres, único
+    - Password: 8+ caracteres
+    - Email: válido e único
+    
+    Returns:
+        Mensagem de sucesso
+    """
+    try:
+        success, message = auth_manager.register_user(
+            username=request.username,
+            email=request.email,
+            password=request.password
+        )
+        
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+        
+        return MessageResponse(message=message, success=True)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar: {str(e)}")
+
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+async def login(request: UserLogin):
     """
     Autentica o usuário e cria uma sessão
     
+    Mecanismos de segurança:
+    - Token gerado com secrets.token_urlsafe (criptograficamente seguro)
+    - Token renovado a cada login (previne session fixation)
+    - Validação de user_id em cada request
+    - Timeout de sessão (60 minutos)
+    
     Returns:
-        Token de sessão
+        Token de sessão + user_id + username
     """
     try:
-        token = auth_manager.create_session(request.master_password)
-        return {"token": token, "message": "Login realizado com sucesso"}
+        token, user_id, message = auth_manager.login(
+            username=request.username,
+            password=request.password
+        )
+        
+        if not token:
+            raise HTTPException(status_code=401, detail=message)
+        
+        # Obtém informações da sessão
+        session = auth_manager.get_session_info(token)
+        
+        return LoginResponse(
+            token=token,
+            user_id=user_id,
+            username=session.username,
+            message=message
+        )
+    
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Erro no login: {str(e)}")
 
 
-@app.post("/api/auth/logout")
+@app.post("/api/auth/logout", response_model=MessageResponse)
 async def logout(token: str = Header(..., alias="X-Session-Token")):
     """
     Encerra a sessão do usuário
@@ -74,22 +143,35 @@ async def logout(token: str = Header(..., alias="X-Session-Token")):
         Mensagem de sucesso
     """
     auth_manager.remove_session(token)
-    return {"message": "Logout realizado com sucesso"}
+    return MessageResponse(message="Logout realizado com sucesso", success=True)
 
+
+# ===== PASSWORD ENDPOINTS =====
 
 @app.post("/api/passwords", response_model=PasswordResponse, status_code=201)
 async def create_password(
     password_data: PasswordCreate,
-    pm: PasswordManager = Depends(get_password_manager)
+    pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)
 ):
     """
-    Cria uma nova senha
+    Cria uma nova senha para o usuário autenticado
     
-    Returns:
-        Dados da senha criada
+    ISOLAMENTO: A senha é associada ao user_id do token
+    
+    Aceita encrypted_password (base64) gerada no front-end
     """
+    pm, user_id = pm_and_user
+    
     try:
+        encrypted_bytes = None
+        if getattr(password_data, "encrypted_password", None):
+            try:
+                encrypted_bytes = base64.b64decode(password_data.encrypted_password)
+            except Exception:
+                raise HTTPException(status_code=400, detail="encrypted_password inválido (base64)")
+
         entry_id = pm.create_password(
+            user_id=user_id,
             title=password_data.title,
             site=password_data.site,
             length=password_data.length,
@@ -98,14 +180,14 @@ async def create_password(
             use_digits=password_data.use_digits,
             use_special=password_data.use_special,
             expiration_date=password_data.expiration_date,
-            custom_password=password_data.custom_password
+            custom_password=password_data.custom_password,
+            encrypted_password=encrypted_bytes,
         )
         
-        result = pm.get_password(entry_id)
-        if not result:
+        entry = pm.get_password(entry_id, user_id)
+        if not entry:
             raise HTTPException(status_code=500, detail="Erro ao recuperar senha criada")
         
-        entry, _ = result
         entropy_level = PasswordGenerator.get_entropy_level(entry.entropy)
         
         return PasswordResponse(
@@ -123,6 +205,8 @@ async def create_password(
             created_at=entry.created_at,
             updated_at=entry.updated_at
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -130,15 +214,19 @@ async def create_password(
 
 
 @app.get("/api/passwords", response_model=List[PasswordResponse])
-async def list_passwords(pm: PasswordManager = Depends(get_password_manager)):
+async def list_passwords(pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)):
     """
-    Lista todas as senhas (sem mostrar a senha descriptografada)
+    Lista todas as senhas do usuário autenticado
+    
+    ISOLAMENTO: Apenas senhas do usuário são retornadas
     
     Returns:
-        Lista de senhas
+        Lista de senhas (sem mostrar a senha descriptografada)
     """
+    pm, user_id = pm_and_user
+    
     try:
-        entries = pm.get_all_passwords()
+        entries = pm.get_all_passwords(user_id)
         result = []
         for entry in entries:
             entropy_level = PasswordGenerator.get_entropy_level(entry.entropy)
@@ -165,30 +253,29 @@ async def list_passwords(pm: PasswordManager = Depends(get_password_manager)):
 @app.get("/api/passwords/{entry_id}", response_model=PasswordDetailResponse)
 async def get_password(
     entry_id: int,
-    pm: PasswordManager = Depends(get_password_manager)
+    pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)
 ):
     """
-    Obtém uma senha específica com a senha descriptografada
+    Obtém uma senha específica com a SENHA CRIPTOGRAFADA
     
-    Args:
-        entry_id: ID da senha
-        
-    Returns:
-        Dados completos da senha incluindo a senha descriptografada
+    ISOLAMENTO: Verifica se entry_id pertence ao usuário autenticado
+    Quem vai descriptografar é o cliente
     """
+    pm, user_id = pm_and_user
+    
     try:
-        result = pm.get_password(entry_id)
-        if not result:
-            raise HTTPException(status_code=404, detail="Senha não encontrada")
-        
-        entry, decrypted_password = result
+        entry = pm.get_password(entry_id, user_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Senha não encontrada ou acesso negado")
+
+        encrypted_b64 = base64.b64encode(entry.password).decode("utf-8")
         entropy_level = PasswordGenerator.get_entropy_level(entry.entropy)
         
         return PasswordDetailResponse(
             id=entry.id,
             title=entry.title,
             site=entry.site,
-            password=decrypted_password,
+            encrypted_password=encrypted_b64,
             length=entry.length,
             use_uppercase=entry.use_uppercase,
             use_lowercase=entry.use_lowercase,
@@ -210,21 +297,26 @@ async def get_password(
 async def update_password(
     entry_id: int,
     password_data: PasswordUpdate,
-    pm: PasswordManager = Depends(get_password_manager)
+    pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)
 ):
     """
     Atualiza uma senha
     
-    Args:
-        entry_id: ID da senha
-        password_data: Dados para atualização
-        
-    Returns:
-        Dados atualizados da senha
+    ISOLAMENTO: Verifica se entry_id pertence ao usuário autenticado
     """
+    pm, user_id = pm_and_user
+    
     try:
+        encrypted_bytes = None
+        if getattr(password_data, "encrypted_password", None):
+            try:
+                encrypted_bytes = base64.b64decode(password_data.encrypted_password)
+            except Exception:
+                raise HTTPException(status_code=400, detail="encrypted_password inválido (base64)")
+
         success = pm.update_password(
             entry_id=entry_id,
+            user_id=user_id,
             title=password_data.title,
             site=password_data.site,
             length=password_data.length,
@@ -234,17 +326,17 @@ async def update_password(
             use_special=password_data.use_special,
             expiration_date=password_data.expiration_date,
             regenerate=password_data.regenerate,
-            custom_password=password_data.custom_password
+            custom_password=password_data.custom_password,
+            encrypted_password=encrypted_bytes,
         )
         
         if not success:
-            raise HTTPException(status_code=404, detail="Senha não encontrada")
+            raise HTTPException(status_code=404, detail="Senha não encontrada ou acesso negado")
         
-        result = pm.get_password(entry_id)
-        if not result:
+        entry = pm.get_password(entry_id, user_id)
+        if not entry:
             raise HTTPException(status_code=500, detail="Erro ao recuperar senha atualizada")
         
-        entry, _ = result
         entropy_level = PasswordGenerator.get_entropy_level(entry.entropy)
         
         return PasswordResponse(
@@ -273,10 +365,12 @@ async def update_password(
 @app.delete("/api/passwords/{entry_id}", response_model=MessageResponse)
 async def delete_password(
     entry_id: int,
-    pm: PasswordManager = Depends(get_password_manager)
+    pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)
 ):
     """
     Deleta uma senha
+    
+    ISOLAMENTO: Verifica se entry_id pertence ao usuário autenticado
     
     Args:
         entry_id: ID da senha
@@ -284,10 +378,12 @@ async def delete_password(
     Returns:
         Mensagem de sucesso
     """
+    pm, user_id = pm_and_user
+    
     try:
-        success = pm.delete_password(entry_id)
+        success = pm.delete_password(entry_id, user_id)
         if not success:
-            raise HTTPException(status_code=404, detail="Senha não encontrada")
+            raise HTTPException(status_code=404, detail="Senha não encontrada ou acesso negado")
         
         return MessageResponse(message="Senha deletada com sucesso", success=True)
     except HTTPException:
@@ -299,7 +395,7 @@ async def delete_password(
 @app.post("/api/passwords/generate", response_model=PasswordGenerateResponse)
 async def generate_test_password(
     request: PasswordGenerateRequest,
-    pm: PasswordManager = Depends(get_password_manager)
+    pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)
 ):
     """
     Gera uma senha de teste sem salvar
@@ -307,6 +403,8 @@ async def generate_test_password(
     Returns:
         Senha gerada com informações de entropia
     """
+    pm, user_id = pm_and_user
+    
     try:
         password = PasswordGenerator.generate(
             length=request.length,
@@ -337,70 +435,102 @@ async def generate_test_password(
         raise HTTPException(status_code=500, detail=f"Erro ao gerar senha: {str(e)}")
 
 
-@app.post("/api/wallet/export", response_model=MessageResponse)
-async def export_wallet(
-    request: WalletExportRequest,
-    pm: PasswordManager = Depends(get_password_manager)
+@app.get("/api/wallet/export")
+async def wallet_export(pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)):
+    """
+    Exporta TODAS as entradas de senha do usuário em formato bruto (criptografado).
+    
+    ISOLAMENTO: Apenas senhas do usuário são exportadas
+    Zero knowledge: O servidor nunca vê as senhas descriptografadas
+    """
+    pm, user_id = pm_and_user
+    
+    entries = pm.get_all_passwords(user_id)
+
+    payload = []
+    for e in entries:
+        payload.append({
+            "title": e.title,
+            "site": e.site,
+            "length": e.length,
+            "use_uppercase": e.use_uppercase,
+            "use_lowercase": e.use_lowercase,
+            "use_digits": e.use_digits,
+            "use_special": e.use_special,
+            "entropy": e.entropy,
+            "expiration_date": e.expiration_date,
+            "created_at": e.created_at,
+            "updated_at": e.updated_at,
+            "encrypted_password": base64.b64encode(e.password).decode("utf-8")
+        })
+
+    return {
+        "exported_at": datetime.now().isoformat(),
+        "entries": payload
+    }
+
+
+@app.post("/api/wallet/import")
+async def wallet_import(
+    data: dict,
+    pm_and_user: Tuple[PasswordManager, int] = Depends(get_user_from_token)
 ):
     """
-    Exporta todas as senhas para um arquivo wallet
+    Importa entradas já criptografadas no cliente
     
-    Returns:
-        Mensagem de sucesso
-    """
-    try:
-        entries = pm.get_all_passwords()
-        WalletManager.export_wallet(
-            entries=entries,
-            encryption_manager=pm.encryption_manager,
-            wallet_password=request.wallet_password,
-            output_file=request.output_file
-        )
-        return MessageResponse(
-            message=f"Wallet exportado com sucesso para {request.output_file}",
-            success=True
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao exportar wallet: {str(e)}")
-
-
-@app.post("/api/wallet/import", response_model=MessageResponse)
-async def import_wallet(
-    request: WalletImportRequest,
-    pm: PasswordManager = Depends(get_password_manager)
-):
-    """
-    Importa senhas de um arquivo wallet
+    ISOLAMENTO: Senhas importadas são associadas ao user_id
+    O servidor nunca vê a senha em texto puro
     
-    Returns:
-        Mensagem de sucesso com número de entradas importadas
+    Formato esperado:
+    {
+      "entries": [
+        {
+          "title": "...",
+          "site": "...",
+          "length": 16,
+          "use_uppercase": true,
+          "use_lowercase": true,
+          "use_digits": true,
+          "use_special": true,
+          "expiration_date": null,
+          "encrypted_password": "encoded-string"
+        },
+        ...
+      ]
+    }
     """
-    try:
-        count = WalletManager.import_wallet(
-            wallet_file=request.wallet_file,
-            wallet_password=request.wallet_password,
-            encryption_manager=pm.encryption_manager,
-            db_manager=pm.db_manager
-        )
-        return MessageResponse(
-            message=f"{count} entradas importadas com sucesso",
-            success=True
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Arquivo wallet não encontrado")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao importar wallet: {str(e)}")
-
-
-@app.get("/api/health")
-async def health_check():
-    """
-    Endpoint de health check
+    pm, user_id = pm_and_user
     
-    Returns:
-        Status da API
-    """
-    return {"status": "ok", "message": "API está funcionando"}
+    if "entries" not in data:
+        raise HTTPException(status_code=400, detail="Formato inválido de wallet.")
+
+    count = 0
+    for entry in data["entries"]:
+        encrypted_b64 = entry.get("encrypted_password")
+        if not encrypted_b64:
+            continue
+
+        try:
+            encrypted_bytes = base64.b64decode(encrypted_b64)
+        except Exception:
+            continue
+
+        pm.create_password(
+            user_id=user_id,
+            title=entry["title"],
+            site=entry["site"],
+            length=entry["length"],
+            use_uppercase=entry["use_uppercase"],
+            use_lowercase=entry["use_lowercase"],
+            use_digits=entry["use_digits"],
+            use_special=entry["use_special"],
+            expiration_date=entry["expiration_date"],
+            encrypted_password=encrypted_bytes
+        )
+        count += 1
+
+    return {"success": True, "imported": count}
+
 
 
 if __name__ == "__main__":

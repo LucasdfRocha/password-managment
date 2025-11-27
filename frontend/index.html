@@ -411,6 +411,8 @@
     </div>
   </header>
 
+  <!-- Wallet password modal placeholder (moved to end of body for proper overlay) -->
+
   <main>
     <!-- Login/Register -->
     <section id="login-section">
@@ -703,6 +705,48 @@
     return bytesToBase64(blob);
   }
 
+  // ===== Wallet-file encryption helpers (AES-GCM with PBKDF2) =====
+  async function encryptPayloadWithWalletPassword(plaintextJson, walletPassword, iterations = 300000) {
+    const encoder = new TextEncoder();
+    const SALT_SIZE = 16;
+    const NONCE_SIZE = 12;
+    const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE));
+    const nonce = crypto.getRandomValues(new Uint8Array(NONCE_SIZE));
+
+    const key = await deriveAesKey(walletPassword, salt, iterations);
+
+    const cipherBuf = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: nonce, tagLength: 128 },
+      key,
+      encoder.encode(plaintextJson)
+    );
+
+    const cipherBytes = new Uint8Array(cipherBuf);
+    return {
+      ciphertext_b64: bytesToBase64(cipherBytes),
+      salt_b64: bytesToBase64(salt),
+      nonce_b64: bytesToBase64(nonce),
+      kdf_iterations: iterations
+    };
+  }
+
+  async function decryptPayloadWithWalletPassword(ciphertext_b64, walletPassword, salt_b64, nonce_b64, iterations = 300000) {
+    const decoder = new TextDecoder();
+    const salt = base64ToBytes(salt_b64);
+    const nonce = base64ToBytes(nonce_b64);
+    const cipherBytes = base64ToBytes(ciphertext_b64);
+
+    const key = await deriveAesKey(walletPassword, salt, iterations);
+
+    const plainBuf = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: nonce, tagLength: 128 },
+      key,
+      cipherBytes
+    );
+
+    return decoder.decode(plainBuf);
+  }
+
   async function decryptWithMasterPassword(base64Blob, masterPassword) {
     const blob = base64ToBytes(base64Blob);
 
@@ -880,6 +924,78 @@
       console.error('Erro ao copiar:', e);
       setStatus('Erro ao copiar para área de transferência', 'error');
     }
+  }
+
+  // ===== Wallet password modal helper =====
+  function showWalletPasswordModal({ title = 'Senha do Wallet', confirm = false } = {}) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('wallet-password-modal');
+      const titleEl = document.getElementById('wallet-modal-title');
+      const input = document.getElementById('wallet-password-input');
+      const confirmContainer = document.getElementById('wallet-password-confirm-container');
+      const confirmInput = document.getElementById('wallet-password-confirm');
+      const okBtn = document.getElementById('wallet-password-ok');
+      const cancelBtn = document.getElementById('wallet-password-cancel');
+
+      titleEl.textContent = title;
+      input.value = '';
+      confirmInput.value = '';
+      confirmContainer.style.display = confirm ? 'block' : 'none';
+
+      // Robustly show the modal: remove 'hidden' class, set display, visibility and opacity
+      modal.classList.remove('hidden');
+      modal.style.display = 'flex';
+      modal.style.visibility = 'visible';
+      modal.style.opacity = '1';
+
+      // Autofocus the input and allow Enter to submit
+      setTimeout(() => {
+        try { input.focus(); } catch (e) { /* ignore */ }
+      }, 20);
+
+      function cleanup() {
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        document.removeEventListener('keydown', onKeyDown);
+        modal.style.display = 'none';
+        modal.style.visibility = '';
+        modal.style.opacity = '';
+      }
+
+      function onKeyDown(ev) {
+        if (ev.key === 'Enter') {
+          onOk();
+        } else if (ev.key === 'Escape') {
+          onCancel();
+        }
+      }
+      document.addEventListener('keydown', onKeyDown);
+
+      function onOk() {
+        const val = input.value;
+        if (!val) {
+          setStatus('Informe a senha do wallet.', 'error');
+          return;
+        }
+        if (confirm) {
+          if (confirmInput.value !== val) {
+            setStatus('Senhas não conferem.', 'error');
+            return;
+          }
+        }
+        cleanup();
+        resolve(val);
+      }
+
+      function onCancel() {
+        cleanup();
+        resolve(null);
+      }
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      input.focus();
+    });
   }
 
   function updateEmptyState() {
@@ -1371,42 +1487,86 @@
   updateEmptyState();
 
   document.getElementById("btn-wallet-export").addEventListener("click", async () => {
-  if (!masterPasswordPlain) {
-    setStatus("Você precisa estar logado para exportar a wallet.", "error");
-    return;
-  }
+    if (!masterPasswordPlain) {
+      setStatus("Você precisa estar logado para exportar a wallet.", "error");
+      return;
+    }
 
-  setStatus("Exportando wallet...");
+    setStatus("Preparando exportação da wallet...");
 
-  const resp = await apiRequest("/wallet/export", { method: "GET" });
-  const data = await resp.json();
+    // Fetch server-side listing (contains encrypted entries)
+    const resp = await apiRequest("/wallet/export", { method: "GET" });
+    const data = await resp.json();
 
-  const decryptedEntries = [];
+    // Decrypt each entry locally and build a plain payload
+    const decryptedEntries = [];
+    for (const e of data.entries) {
+      const decrypted = await decryptWithMasterPassword(e.encrypted_password, masterPasswordPlain);
+      decryptedEntries.push({
+        title: e.title,
+        site: e.site,
+        password: decrypted,
+        length: e.length,
+        use_uppercase: e.use_uppercase,
+        use_lowercase: e.use_lowercase,
+        use_digits: e.use_digits,
+        use_special: e.use_special,
+        entropy: e.entropy,
+        expiration_date: e.expiration_date,
+        created_at: e.created_at,
+        updated_at: e.updated_at
+      });
+    }
 
-  for (const e of data.entries) {
-    const decrypted = await decryptWithMasterPassword(
-      e.encrypted_password,
-      masterPasswordPlain
-    );
+    const payload = { version: "1.0", entries: decryptedEntries };
 
-    decryptedEntries.push({
-      ...e,
-      password: decrypted
-    });
-  }
+    // Serialize payload
+    const payloadJson = JSON.stringify(payload, null, 2);
 
-  const blob = new Blob(
-    [JSON.stringify({ version: "1.0", entries: decryptedEntries }, null, 2)],
-    { type: "application/json" }
-  );
+    // Ask the user for a wallet password via modal (confirm required)
+    const walletPassword = await showWalletPasswordModal({ title: 'Escolha uma senha para o arquivo wallet', confirm: true });
+    if (!walletPassword) {
+      setStatus('Exportação cancelada pelo usuário.', 'error');
+      return;
+    }
 
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "wallet.json";
-  a.click();
+    setStatus('Criptografando payload do wallet...');
 
-  setStatus("Wallet exportada com sucesso.");
-});
+    // Encrypt the payload using the wallet password (AES-GCM)
+    const encResult = await encryptPayloadWithWalletPassword(payloadJson, walletPassword, 300000);
+
+    // Build metadata describing the wallet and the entry schema (encrypted)
+    const meta = {
+      wallet_format_version: "1.0",
+      app: { name: "password-managment", version: "1.0" },
+      exported_at: new Date().toISOString(),
+      encryption: {
+        algorithm: "AES-GCM",
+        kdf: "PBKDF2",
+        kdf_hash: "SHA-256",
+        kdf_iterations: encResult.kdf_iterations,
+        salt: encResult.salt_b64,
+        nonce: encResult.nonce_b64,
+        tag_bytes: 16,
+      },
+      serialization: { format: "json", encoding: "utf-8", indent: 2 }
+    };
+
+    const walletFile = {
+      meta,
+      data: {
+        entries: encResult.ciphertext_b64
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(walletFile, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "wallet.json";
+    a.click();
+
+    setStatus("Wallet exportada com sucesso.");
+  });
 
 document.getElementById("btn-wallet-import").addEventListener("click", () => {
   document.getElementById("wallet-file-input").click();
@@ -1419,18 +1579,101 @@ document.getElementById("wallet-file-input").addEventListener("change", async (e
   const text = await file.text();
   const json = JSON.parse(text);
 
-  const payloadToServer = {
-    entries: []
-  };
+  // Accept both older flat format ({ entries: [...] }), legacy new plain format ({ meta, data.entries }),
+  // and encrypted wallet format ({ meta, data.entries_encrypted }).
+  let entriesSource = null;
+  if (json && json.data && json.data.entries_encrypted) {
+    // Encrypted wallet file produced by export flow
+    try {
+      const walletPassword = await showWalletPasswordModal({ title: 'Digite a senha do wallet para importar', confirm: false });
+      if (!walletPassword) {
+        setStatus('Importação cancelada pelo usuário.', 'error');
+        return;
+      }
 
-  for (const e of json.entries) {
-    const encrypted = await encryptWithMasterPassword(
-      e.password,
-      masterPasswordPlain
-    );
+      const encMeta = json.meta && json.meta.encryption ? json.meta.encryption : {};
+      const iterations = encMeta.kdf_iterations || 300000;
+      const salt_b64 = encMeta.salt;
+      const nonce_b64 = encMeta.nonce;
 
+      if (!salt_b64 || !nonce_b64) {
+        setStatus('Formato de wallet inválido: metadados de criptografia ausentes.', 'error');
+        return;
+      }
+
+      const plaintext = await decryptPayloadWithWalletPassword(json.data.entries_encrypted, walletPassword, salt_b64, nonce_b64, iterations);
+      const parsed = JSON.parse(plaintext);
+      if (!parsed || !Array.isArray(parsed.entries)) {
+        setStatus('Arquivo de wallet descriptografado mas formato inválido.', 'error');
+        return;
+      }
+
+      entriesSource = parsed.entries;
+    } catch (e) {
+      console.error('Erro ao descriptografar wallet:', e);
+      setStatus('Erro ao descriptografar o arquivo do wallet: senha incorreta ou arquivo inválido.', 'error');
+      return;
+    }
+  } else if (json && json.data && Array.isArray(json.data.entries)) {
+    // new plain format (may include HMAC signature)
+    if (json.hmac && json.meta && json.meta.hmac) {
+      try {
+        const walletPassword = await showWalletPasswordModal({ title: 'Digite a senha do wallet para verificar assinatura', confirm: false });
+        if (!walletPassword) {
+          setStatus('Importação cancelada pelo usuário.', 'error');
+          return;
+        }
+
+        const encoder = new TextEncoder();
+        const salt = base64ToBytes(json.meta.hmac.salt);
+        const iterations = json.meta.hmac.kdf_iterations || 300000;
+        const pwKey = await crypto.subtle.importKey('raw', encoder.encode(walletPassword), { name: 'PBKDF2' }, false, ['deriveKey']);
+        const hmacKey = await crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt: salt, iterations: iterations, hash: 'SHA-256' },
+          pwKey,
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['verify']
+        );
+
+        const payloadJson = JSON.stringify(json.data, null, 2);
+        const sig = base64ToBytes(json.hmac);
+        const ok = await crypto.subtle.verify('HMAC', hmacKey, sig, encoder.encode(payloadJson));
+        if (!ok) {
+          setStatus('HMAC inválido: arquivo corrompido ou senha do wallet incorreta.', 'error');
+          return;
+        }
+      } catch (e) {
+        console.error('Erro ao verificar HMAC:', e);
+        setStatus('Erro ao verificar assinatura do arquivo.', 'error');
+        return;
+      }
+    }
+
+    entriesSource = json.data.entries;
+  } else if (json && Array.isArray(json.entries)) {
+    // legacy format
+    entriesSource = json.entries;
+  } else {
+    setStatus('Formato de wallet desconhecido.', 'error');
+    return;
+  }
+
+  const payloadToServer = { entries: [] };
+  for (const e of entriesSource) {
+    const encrypted = await encryptWithMasterPassword(e.password, masterPasswordPlain);
     payloadToServer.entries.push({
-      ...e,
+      title: e.title,
+      site: e.site,
+      length: e.length,
+      use_uppercase: e.use_uppercase,
+      use_lowercase: e.use_lowercase,
+      use_digits: e.use_digits,
+      use_special: e.use_special,
+      entropy: e.entropy,
+      expiration_date: e.expiration_date,
+      created_at: e.created_at,
+      updated_at: e.updated_at,
       encrypted_password: encrypted
     });
   }
@@ -1442,11 +1685,30 @@ document.getElementById("wallet-file-input").addEventListener("change", async (e
   });
 
   const result = await resp.json();
-  setStatus(`Wallet importada: ${result.imported} senhas.`);
-  loadPasswords();
+  setStatus(`Wallet importada: ${result.imported || result.message || 'ok'} senhas.`);
+  await loadPasswords();
 });
 
 </script>
+
+  <!-- Wallet password modal (placed at end for correct stacking) -->
+  <div id="wallet-password-modal" class="hidden" role="dialog" aria-modal="true" style="position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:9999;display:none;">
+    <div style="background:white;padding:1.25rem;border-radius:12px;min-width:320px;max-width:520px;box-shadow:0 16px 48px rgba(2,6,23,0.4);">
+      <h3 id="wallet-modal-title" style="margin-bottom:0.5rem;font-size:1.05rem;">Senha do Wallet</h3>
+      <div style="margin-bottom:0.75rem;">
+        <label for="wallet-password-input" style="display:block;margin-bottom:0.25rem;">Senha do wallet</label>
+        <input id="wallet-password-input" type="password" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div id="wallet-password-confirm-container" style="display:none;margin-bottom:0.75rem;">
+        <label for="wallet-password-confirm" style="display:block;margin-bottom:0.25rem;">Confirme a senha</label>
+        <input id="wallet-password-confirm" type="password" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:8px;" />
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button id="wallet-password-cancel" class="secondary">Cancelar</button>
+        <button id="wallet-password-ok" class="primary">OK</button>
+      </div>
+    </div>
+  </div>
 
 </body>
 </html>

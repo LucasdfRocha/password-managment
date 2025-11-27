@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import List, Optional
+
 from models import PasswordEntry
 from database import DatabaseManager
 from password_generator import PasswordGenerator
@@ -12,7 +13,7 @@ class PasswordManager:
     Gerenciador principal de senhas com isolamento por usuário.
 
     IMPORTANTE:
-    - O servidor NÃO faz mais encrypt/decrypt.
+    - O servidor NÃO faz encrypt/decrypt.
     - Ele só armazena blobs criptografados vindos do cliente.
     - Cada usuário vê apenas suas próprias senhas.
     """
@@ -24,7 +25,7 @@ class PasswordManager:
         Nota: user_id é passado a cada operação para garantir isolamento.
         """
         self.db_manager = DatabaseManager(db_path)
-        self.encryption_manager = None
+        self.encryption_manager = None  # não é mais usado no modelo zero-knowledge
 
     # -------------------------------------------------------------------------
     # CREATE
@@ -40,7 +41,7 @@ class PasswordManager:
         use_digits: bool = True,
         use_special: bool = True,
         expiration_date: Optional[datetime] = None,
-        custom_password: Optional[str] = None,
+        custom_password: Optional[str] = None,   # não usado no servidor
         encrypted_password: Optional[bytes] = None,
     ) -> int:
         """
@@ -66,7 +67,7 @@ class PasswordManager:
             user_id=user_id,
             title=title,
             site=site,
-            password=b"",
+            password=b"",  # o blob real vem separado, não fica aqui
             length=length,
             use_uppercase=use_uppercase,
             use_lowercase=use_lowercase,
@@ -118,8 +119,8 @@ class PasswordManager:
         use_digits: Optional[bool] = None,
         use_special: Optional[bool] = None,
         expiration_date: Optional[datetime] = None,
-        regenerate: bool = False,
-        custom_password: Optional[str] = None,
+        regenerate: bool = False,              # mantido por compatibilidade
+        custom_password: Optional[str] = None, # não usado no servidor
         encrypted_password: Optional[bytes] = None,
     ) -> bool:
         """
@@ -162,6 +163,7 @@ class PasswordManager:
         if encrypted_password is not None:
             encrypted_blob = encrypted_password
         else:
+            # mantém o blob que já estava no banco
             encrypted_blob = entry.password
 
         entry.updated_at = datetime.now()

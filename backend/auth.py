@@ -9,6 +9,7 @@ from typing import Optional, Tuple
 from datetime import datetime, timedelta
 import secrets
 import bcrypt
+
 from password_manager import PasswordManager
 from database import DatabaseManager
 from models import User
@@ -16,14 +17,15 @@ from models import User
 
 class SessionInfo:
     """Informações sobre uma sessão de usuário"""
-    
+
     def __init__(self, user_id: int, username: str, token: str, created_at: datetime):
         self.user_id = user_id
         self.username = username
         self.token = token
         self.created_at = created_at
+        # Cada sessão tem seu próprio PasswordManager (mesmo banco)
         self.pm = PasswordManager(db_path="passwords.db")
-    
+
     def is_expired(self, timeout_minutes: int = 60) -> bool:
         """Verifica se a sessão expirou"""
         return datetime.now() - self.created_at > timedelta(minutes=timeout_minutes)
@@ -32,7 +34,7 @@ class SessionInfo:
 class AuthManager:
     """
     Gerenciador de autenticação multi-usuário com proteção contra session fixation
-    
+
     Mecanismos de segurança:
     - Tokens gerados com secrets.token_urlsafe (criptograficamente seguro)
     - Renovação de token após login (previne fixation)
@@ -53,12 +55,12 @@ class AuthManager:
     def register_user(self, username: str, email: str, password: str) -> Tuple[bool, str]:
         """
         Registra um novo usuário
-        
+
         Args:
             username: Nome de usuário
             email: Email do usuário
             password: Senha em texto puro
-            
+
         Returns:
             Tupla (sucesso, mensagem)
         """
@@ -68,7 +70,7 @@ class AuthManager:
                 return False, "Username deve ter pelo menos 3 caracteres"
             if len(password) < 8:
                 return False, "Senha deve ter pelo menos 8 caracteres"
-            if "@" not in email:
+            if len(email) < 5 or "@" not in email:
                 return False, "Email inválido"
 
             # Verifica se username já existe
@@ -78,9 +80,9 @@ class AuthManager:
 
             # Hash da senha com bcrypt
             password_hash = bcrypt.hashpw(
-                password.encode('utf-8'),
-                bcrypt.gensalt(rounds=self.bcrypt_cost)
-            ).decode('utf-8')
+                password.encode("utf-8"),
+                bcrypt.gensalt(rounds=self.bcrypt_cost),
+            ).decode("utf-8")
 
             # Cria o usuário
             now = datetime.now()
@@ -90,10 +92,10 @@ class AuthManager:
                 email=email,
                 password_hash=password_hash,
                 created_at=now,
-                updated_at=now
+                updated_at=now,
             )
-            
-            user_id = self.db_manager.create_user(user)
+
+            self.db_manager.create_user(user)
             return True, f"Usuário {username} registrado com sucesso"
 
         except Exception as e:
@@ -101,35 +103,38 @@ class AuthManager:
 
     # ===== USER LOGIN =====
 
-    def login(self, username: str, password: str) -> Tuple[Optional[str], Optional[int], str]:
+    def login(self, username: str, password: str) -> Tuple[bool, Optional[str], Optional[int], str]:
         """
         Autentica um usuário e cria uma sessão
-        
+
         PROTEÇÃO CONTRA SESSION FIXATION:
         - Gera token novo a cada login
         - Valida user_id em cada request
         - Timeout de sessão
-        
+
         Args:
             username: Nome de usuário
             password: Senha em texto puro
-            
+
         Returns:
-            Tupla (token, user_id, mensagem)
-            token e user_id são None se falhar
+            Tupla (success, token, user_id, message)
+            - success: True/False
+            - token: token de sessão ou None
+            - user_id: id do usuário ou None
+            - message: texto explicativo
         """
         try:
             # Busca o usuário
             user = self.db_manager.get_user_by_username(username)
             if not user:
-                return None, None, "Username ou senha incorretos"
+                return False, None, None, "Username ou senha incorretos"
 
             # Verifica a senha com bcrypt
             if not bcrypt.checkpw(
-                password.encode('utf-8'),
-                user.password_hash.encode('utf-8')
+                password.encode("utf-8"),
+                user.password_hash.encode("utf-8"),
             ):
-                return None, None, "Username ou senha incorretos"
+                return False, None, None, "Username ou senha incorretos"
 
             # ===== SESSION FIXATION PROTECTION =====
             # Gera novo token (nunca reutiliza)
@@ -140,24 +145,25 @@ class AuthManager:
                 user_id=user.id,
                 username=user.username,
                 token=token,
-                created_at=datetime.now()
+                created_at=datetime.now(),
             )
             self.sessions[token] = session
 
-            return token, user.id, "Login realizado com sucesso"
+            return True, token, user.id, "Login realizado com sucesso"
 
         except Exception as e:
-            return None, None, f"Erro no login: {str(e)}"
+            # Erro inesperado → login falhou, mas sem quebrar a API
+            return False, None, None, f"Erro no login: {str(e)}"
 
     # ===== SESSION VALIDATION =====
 
     def validate_session(self, token: str) -> Tuple[bool, Optional[int], str]:
         """
         Valida se um token de sessão é válido
-        
+
         Args:
             token: Token de sessão
-            
+
         Returns:
             Tupla (válido, user_id, mensagem)
         """
@@ -180,7 +186,7 @@ class AuthManager:
     def get_password_manager(self, token: str) -> Optional[PasswordManager]:
         """
         Retorna o PasswordManager associado ao token e user_id
-        
+
         OBS: A validação é feita aqui internamente
         """
         is_valid, user_id, _ = self.validate_session(token)
@@ -193,8 +199,17 @@ class AuthManager:
 
         return session.pm
 
+    # ===== LOGOUT / CONTROLE DE SESSÃO =====
+
+    def logout(self, token: str) -> Tuple[bool, str]:
+        """Remove uma sessão (logout explícito)"""
+        if token in self.sessions:
+            self.sessions.pop(token, None)
+            return True, "Sessão encerrada com sucesso."
+        return False, "Sessão não encontrada."
+
     def remove_session(self, token: str):
-        """Remove uma sessão (logout)"""
+        """Remove uma sessão (atalho simples)"""
         self.sessions.pop(token, None)
 
     def is_valid_token(self, token: str) -> bool:
@@ -202,6 +217,5 @@ class AuthManager:
         return token in self.sessions
 
 
-# Instância global
+# Instância global usada pela API
 auth_manager = AuthManager()
-

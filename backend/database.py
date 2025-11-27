@@ -2,9 +2,9 @@
 Gerenciamento do banco de dados SQLite
 """
 import sqlite3
-import json
 from datetime import datetime
 from typing import List, Optional
+
 from models import PasswordEntry, User
 
 
@@ -62,20 +62,16 @@ class DatabaseManager:
         conn.commit()
         conn.close()
     
-    # ===== USER OPERATIONS =====
+    # ======================================================================
+    # USER OPERATIONS
+    # ======================================================================
     
     def create_user(self, user: User) -> int:
         """
-        Cria um novo usuário
+        Cria um novo usuário.
         
-        Args:
-            user: Objeto User
-            
-        Returns:
-            ID do usuário criado
-            
         Raises:
-            sqlite3.IntegrityError: Se username ou email já existem
+            sqlite3.IntegrityError: Se username ou email já existem.
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -108,7 +104,14 @@ class DatabaseManager:
         conn.close()
         
         if row:
-            return self._row_to_user(row)
+            return User(
+                id=row[0],
+                username=row[1],
+                email=row[2],
+                password_hash=row[3],
+                created_at=datetime.fromisoformat(row[4]),
+                updated_at=datetime.fromisoformat(row[5])
+            )
         return None
     
     def get_user_by_id(self, user_id: int) -> Optional[User]:
@@ -121,28 +124,26 @@ class DatabaseManager:
         conn.close()
         
         if row:
-            return self._row_to_user(row)
+            return User(
+                id=row[0],
+                username=row[1],
+                email=row[2],
+                password_hash=row[3],
+                created_at=datetime.fromisoformat(row[4]),
+                updated_at=datetime.fromisoformat(row[5])
+            )
         return None
     
-    def _row_to_user(self, row) -> User:
-        """Converte uma linha do banco em User"""
-        return User(
-            id=row[0],
-            username=row[1],
-            email=row[2],
-            password_hash=row[3],
-            created_at=datetime.fromisoformat(row[4]),
-            updated_at=datetime.fromisoformat(row[5])
-        )
-    
-    # ===== PASSWORD OPERATIONS =====
+    # ======================================================================
+    # PASSWORD OPERATIONS
+    # ======================================================================
     
     def create_entry(self, entry: PasswordEntry, encrypted_password: bytes) -> int:
         """
-        Cria uma nova entrada de senha
+        Cria uma nova entrada de senha.
         
         Args:
-            entry: Objeto PasswordEntry
+            entry: Objeto PasswordEntry (metadados)
             encrypted_password: Senha criptografada em bytes
             
         Returns:
@@ -189,14 +190,29 @@ class DatabaseManager:
         rows = cursor.fetchall()
         conn.close()
         
-        entries = []
+        entries: List[PasswordEntry] = []
         for row in rows:
-            entries.append(self._row_to_entry(row))
+            entries.append(PasswordEntry(
+                id=row[0],
+                user_id=row[1],
+                title=row[2],
+                site=row[3],
+                password=row[4],  # password_encrypted (BLOB)
+                length=row[5],
+                use_uppercase=bool(row[6]),
+                use_lowercase=bool(row[7]),
+                use_digits=bool(row[8]),
+                use_special=bool(row[9]),
+                entropy=row[10],
+                expiration_date=datetime.fromisoformat(row[11]) if row[11] else None,
+                created_at=datetime.fromisoformat(row[12]),
+                updated_at=datetime.fromisoformat(row[13])
+            ))
         return entries
     
     def get_entry_by_id(self, entry_id: int) -> Optional[PasswordEntry]:
         """
-        Retorna uma entrada por ID
+        Retorna uma entrada por ID.
         
         Args:
             entry_id: ID da entrada
@@ -212,12 +228,27 @@ class DatabaseManager:
         conn.close()
         
         if row:
-            return self._row_to_entry(row)
+            return PasswordEntry(
+                id=row[0],
+                user_id=row[1],
+                title=row[2],
+                site=row[3],
+                password=row[4],  # password_encrypted (BLOB)
+                length=row[5],
+                use_uppercase=bool(row[6]),
+                use_lowercase=bool(row[7]),
+                use_digits=bool(row[8]),
+                use_special=bool(row[9]),
+                entropy=row[10],
+                expiration_date=datetime.fromisoformat(row[11]) if row[11] else None,
+                created_at=datetime.fromisoformat(row[12]),
+                updated_at=datetime.fromisoformat(row[13])
+            )
         return None
     
-    def update_entry(self, entry_id: int, entry: PasswordEntry, encrypted_password: bytes):
+    def update_entry(self, entry_id: int, entry: PasswordEntry, encrypted_password: bytes) -> None:
         """
-        Atualiza uma entrada de senha
+        Atualiza uma entrada de senha.
         
         Args:
             entry_id: ID da entrada
@@ -251,7 +282,7 @@ class DatabaseManager:
         conn.commit()
         conn.close()
     
-    def delete_entry(self, entry_id: int):
+    def delete_entry(self, entry_id: int) -> None:
         """
         Deleta uma entrada de senha
         
@@ -264,24 +295,3 @@ class DatabaseManager:
         cursor.execute("DELETE FROM password_entries WHERE id = ?", (entry_id,))
         conn.commit()
         conn.close()
-    
-    def _row_to_entry(self, row) -> PasswordEntry:
-        """Converte uma linha do banco em PasswordEntry"""
-        return PasswordEntry(
-            id=row[0],
-            user_id=row[1],
-            title=row[2],
-            site=row[3],
-            password=row[4],
-            length=row[5],
-            use_uppercase=bool(row[6]),
-            use_lowercase=bool(row[7]),
-            use_digits=bool(row[8]),
-            use_special=bool(row[9]),
-            entropy=row[10],
-            expiration_date=datetime.fromisoformat(row[11]) if row[11] else None,
-            created_at=datetime.fromisoformat(row[12]),
-            updated_at=datetime.fromisoformat(row[13])
-        )
-
-

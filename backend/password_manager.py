@@ -9,23 +9,21 @@ from password_generator import PasswordGenerator
 
 class PasswordManager:
     """
-    Gerenciador principal de senhas.
+    Gerenciador principal de senhas com isolamento por usuário.
 
     IMPORTANTE:
     - O servidor NÃO faz mais encrypt/decrypt.
     - Ele só armazena blobs criptografados vindos do cliente.
+    - Cada usuário vê apenas suas próprias senhas.
     """
 
     def __init__(self, db_path: str = "passwords.db"):
         """
         Inicializa o gerenciador de senhas.
-
-        master_password não é mais necessário aqui, pois
-        toda a criptografia acontece no CLIENTE.
+        
+        Nota: user_id é passado a cada operação para garantir isolamento.
         """
         self.db_manager = DatabaseManager(db_path)
-        # Mantemos o atributo por compatibilidade com o WalletManager,
-        # mas ele fica sempre None se você removeu a funcionalidade de wallet.
         self.encryption_manager = None
 
     # -------------------------------------------------------------------------
@@ -33,6 +31,7 @@ class PasswordManager:
     # -------------------------------------------------------------------------
     def create_password(
         self,
+        user_id: int,
         title: str,
         site: str,
         length: int = 16,
@@ -41,14 +40,15 @@ class PasswordManager:
         use_digits: bool = True,
         use_special: bool = True,
         expiration_date: Optional[datetime] = None,
-        custom_password: Optional[str] = None,      # não usamos mais no servidor
-        encrypted_password: Optional[bytes] = None, # OBRIGATÓRIO no fluxo novo
+        custom_password: Optional[str] = None,
+        encrypted_password: Optional[bytes] = None,
     ) -> int:
         """
-        Cria uma nova senha.
+        Cria uma nova senha para um usuário.
 
         - O SERVIDOR NÃO GERA NEM CRIPTOGRAFA SENHA.
         - encrypted_password deve vir do CLIENTE (já criptografado).
+        - user_id garante isolamento de dados.
         """
         if encrypted_password is None:
             raise ValueError(
@@ -63,9 +63,10 @@ class PasswordManager:
 
         entry = PasswordEntry(
             id=None,
+            user_id=user_id,
             title=title,
             site=site,
-            password=b"",  # será substituído pelo blob criptografado no DB
+            password=b"",
             length=length,
             use_uppercase=use_uppercase,
             use_lowercase=use_lowercase,
@@ -83,17 +84,24 @@ class PasswordManager:
     # -------------------------------------------------------------------------
     # READ
     # -------------------------------------------------------------------------
-    def get_all_passwords(self) -> List[PasswordEntry]:
-        """Retorna todas as senhas (sem descriptografar)."""
-        return self.db_manager.get_all_entries()
+    def get_all_passwords(self, user_id: int) -> List[PasswordEntry]:
+        """
+        Retorna todas as senhas de um usuário (sem descriptografar).
+        
+        ISOLAMENTO: Apenas senhas do user_id são retornadas.
+        """
+        return self.db_manager.get_all_entries_for_user(user_id)
 
-    def get_password(self, entry_id: int) -> Optional[PasswordEntry]:
+    def get_password(self, entry_id: int, user_id: int) -> Optional[PasswordEntry]:
         """
         Retorna a entrada de senha SEM descriptografar.
-
-        Quem descriptografa é o CLIENTE.
+        
+        ISOLAMENTO: Verifica se entry_id pertence ao user_id.
         """
-        return self.db_manager.get_entry_by_id(entry_id)
+        entry = self.db_manager.get_entry_by_id(entry_id)
+        if entry and entry.user_id == user_id:
+            return entry
+        return None
 
     # -------------------------------------------------------------------------
     # UPDATE
@@ -101,6 +109,7 @@ class PasswordManager:
     def update_password(
         self,
         entry_id: int,
+        user_id: int,
         title: Optional[str] = None,
         site: Optional[str] = None,
         length: Optional[int] = None,
@@ -109,18 +118,17 @@ class PasswordManager:
         use_digits: Optional[bool] = None,
         use_special: Optional[bool] = None,
         expiration_date: Optional[datetime] = None,
-        regenerate: bool = False,                 # mantido por compatibilidade, mas
-        custom_password: Optional[str] = None,    # não usado no servidor
-        encrypted_password: Optional[bytes] = None,  # NOVO: blob vindo do cliente
+        regenerate: bool = False,
+        custom_password: Optional[str] = None,
+        encrypted_password: Optional[bytes] = None,
     ) -> bool:
         """
         Atualiza metadados da senha e, opcionalmente, o blob criptografado.
-
-        - Se encrypted_password vier preenchido, substitui a senha.
-        - O servidor NUNCA descriptografa.
+        
+        ISOLAMENTO: Verifica se entry_id pertence ao user_id antes de atualizar.
         """
         entry = self.db_manager.get_entry_by_id(entry_id)
-        if not entry:
+        if not entry or entry.user_id != user_id:
             return False
 
         # Atualiza metadados
@@ -141,7 +149,7 @@ class PasswordManager:
         if expiration_date is not None:
             entry.expiration_date = expiration_date
 
-        # Recalcula entropia se algo relacionado a charset/tamanho mudou
+        # Recalcula entropia
         entry.entropy = PasswordGenerator.calculate_entropy(
             entry.length,
             entry.use_uppercase,
@@ -150,11 +158,10 @@ class PasswordManager:
             entry.use_special,
         )
 
-        # Decide qual blob criptografado salvar:
+        # Decide qual blob criptografado salvar
         if encrypted_password is not None:
             encrypted_blob = encrypted_password
         else:
-            # mantém o mesmo blob já armazenado
             encrypted_blob = entry.password
 
         entry.updated_at = datetime.now()
@@ -164,10 +171,14 @@ class PasswordManager:
     # -------------------------------------------------------------------------
     # DELETE
     # -------------------------------------------------------------------------
-    def delete_password(self, entry_id: int) -> bool:
-        """Deleta uma senha."""
+    def delete_password(self, entry_id: int, user_id: int) -> bool:
+        """
+        Deleta uma senha.
+        
+        ISOLAMENTO: Verifica se entry_id pertence ao user_id antes de deletar.
+        """
         entry = self.db_manager.get_entry_by_id(entry_id)
-        if not entry:
+        if not entry or entry.user_id != user_id:
             return False
 
         self.db_manager.delete_entry(entry_id)

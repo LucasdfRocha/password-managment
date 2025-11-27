@@ -412,18 +412,45 @@
   </header>
 
   <main>
-    <!-- Login -->
+    <!-- Login/Register -->
     <section id="login-section">
       <div class="card login-card">
-        <h2>Login com Senha Mestra</h2>
-        <div class="form-group">
-          <label for="master-password">Senha mestra</label>
-          <div class="password-input-wrapper">
-            <input type="password" id="master-password" placeholder="Digite sua senha mestra">
-            <button type="button" class="show-password-btn" id="toggle-master-password" title="Mostrar/ocultar senha">Mostrar</button>
+        <h2 id="form-title">Login</h2>
+        <div id="login-form">
+          <div class="form-group">
+            <label for="username">Usuário</label>
+            <input type="text" id="username" placeholder="Seu nome de usuário">
           </div>
+          <div class="form-group">
+            <label for="password">Senha</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="password" placeholder="Sua senha">
+              <button type="button" class="show-password-btn" id="toggle-password">Mostrar</button>
+            </div>
+          </div>
+          <button class="primary" id="btn-login" style="width: 100%; margin-bottom: 1rem;">Entrar</button>
+          <button class="secondary" id="btn-toggle-register" style="width: 100%;">Não tem conta? Registre-se</button>
         </div>
-        <button class="primary" id="btn-login" style="width: 100%;">Entrar</button>
+
+        <div id="register-form" class="hidden">
+          <div class="form-group">
+            <label for="register-username">Usuário</label>
+            <input type="text" id="register-username" placeholder="Escolha um nome de usuário (3+ caracteres)">
+          </div>
+          <div class="form-group">
+            <label for="register-email">Email</label>
+            <input type="email" id="register-email" placeholder="seu@email.com">
+          </div>
+          <div class="form-group">
+            <label for="register-password">Senha</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="register-password" placeholder="Senha (8+ caracteres)">
+              <button type="button" class="show-password-btn" id="toggle-register-password">Mostrar</button>
+            </div>
+          </div>
+          <button class="primary" id="btn-register" style="width: 100%; margin-bottom: 1rem;">Registrar</button>
+          <button class="secondary" id="btn-toggle-login" style="width: 100%;">Já tem conta? Faça login</button>
+        </div>
       </div>
     </section>
 
@@ -431,7 +458,7 @@
     <section id="app-section" class="hidden">
       <div class="card">
         <div class="top-bar">
-          <h2>Bem-vindo! 👋</h2>
+          <h2>Bem-vindo! 👋 <span id="current-username"></span></h2>
           <button class="secondary" id="btn-logout">Sair</button>
         </div>
 
@@ -555,15 +582,31 @@
   const API_BASE = "http://localhost:8000/api";
 
   let sessionToken = null;
-  let masterPasswordPlain = null; // *** NOVO: guardar a master só no front
+  let masterPasswordPlain = null;
+  let currentUserId = null;
+  let currentUsername = null;
 
   const statusEl = document.getElementById('status');
   const loginSection = document.getElementById('login-section');
   const appSection = document.getElementById('app-section');
 
-  const masterPasswordInput = document.getElementById('master-password');
+  // Login form elements
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
   const btnLogin = document.getElementById('btn-login');
+  const btnToggleRegister = document.getElementById('btn-toggle-register');
+  const togglePasswordBtn = document.getElementById('toggle-password');
+
+  // Register form elements
+  const registerUsernameInput = document.getElementById('register-username');
+  const registerEmailInput = document.getElementById('register-email');
+  const registerPasswordInput = document.getElementById('register-password');
+  const btnRegister = document.getElementById('btn-register');
+  const btnToggleLogin = document.getElementById('btn-toggle-login');
+  const toggleRegisterPasswordBtn = document.getElementById('toggle-register-password');
+
   const btnLogout = document.getElementById('btn-logout');
+  const currentUsernameSpan = document.getElementById('current-username');
 
   const formCreatePassword = document.getElementById('form-create-password');
   const tbodyPasswords = document.getElementById('passwords-table-body');
@@ -869,28 +912,99 @@
   }
 
   // ===== Login / Logout =====
-  document.getElementById('toggle-master-password').addEventListener('click', () => {
-    const input = masterPasswordInput;
-    const button = document.getElementById('toggle-master-password');
-    if (input.type === 'password') {
-      input.type = 'text';
-      button.textContent = 'Ocultar';
+  
+  // Toggle between login and register forms
+  btnToggleRegister.addEventListener('click', () => {
+    document.getElementById('login-form').classList.add('hidden');
+    document.getElementById('register-form').classList.remove('hidden');
+    document.getElementById('form-title').textContent = 'Registrar';
+  });
+
+  btnToggleLogin.addEventListener('click', () => {
+    document.getElementById('register-form').classList.add('hidden');
+    document.getElementById('login-form').classList.remove('hidden');
+    document.getElementById('form-title').textContent = 'Login';
+  });
+
+  // Toggle password visibility
+  togglePasswordBtn.addEventListener('click', () => {
+    if (passwordInput.type === 'password') {
+      passwordInput.type = 'text';
+      togglePasswordBtn.textContent = 'Ocultar';
     } else {
-      input.type = 'password';
-      button.textContent = 'Mostrar';
+      passwordInput.type = 'password';
+      togglePasswordBtn.textContent = 'Mostrar';
     }
   });
 
-  masterPasswordInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      btnLogin.click();
+  toggleRegisterPasswordBtn.addEventListener('click', () => {
+    if (registerPasswordInput.type === 'password') {
+      registerPasswordInput.type = 'text';
+      toggleRegisterPasswordBtn.textContent = 'Ocultar';
+    } else {
+      registerPasswordInput.type = 'password';
+      toggleRegisterPasswordBtn.textContent = 'Mostrar';
     }
+  });
+
+  // Register
+  btnRegister.addEventListener('click', async () => {
+    const username = registerUsernameInput.value.trim();
+    const email = registerEmailInput.value.trim();
+    const password = registerPasswordInput.value.trim();
+
+    if (!username || !email || !password) {
+      setStatus("Preencha todos os campos.", "error");
+      return;
+    }
+
+    btnRegister.disabled = true;
+    setStatus("Registrando...");
+
+    try {
+      const resp = await fetch(API_BASE + "/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, email, password })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || "Erro no registro");
+      }
+
+      setStatus("Registro realizado com sucesso! Faça login.");
+      registerUsernameInput.value = "";
+      registerEmailInput.value = "";
+      registerPasswordInput.value = "";
+      
+      // Volta para login
+      document.getElementById('register-form').classList.add('hidden');
+      document.getElementById('login-form').classList.remove('hidden');
+      document.getElementById('form-title').textContent = 'Login';
+    } catch (e) {
+      console.error(e);
+      setStatus("Erro no registro: " + e.message, "error");
+    } finally {
+      btnRegister.disabled = false;
+    }
+  });
+
+  // Login
+  usernameInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') btnLogin.click();
+  });
+
+  passwordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') btnLogin.click();
   });
 
   btnLogin.addEventListener('click', async () => {
-    const masterPassword = masterPasswordInput.value.trim();
-    if (!masterPassword) {
-      setStatus("Digite a senha mestra.", "error");
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    if (!username || !password) {
+      setStatus("Digite username e senha.", "error");
       return;
     }
 
@@ -901,7 +1015,7 @@
       const resp = await fetch(API_BASE + "/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_password: masterPassword })
+        body: JSON.stringify({ username, password })
       });
 
       if (!resp.ok) {
@@ -911,12 +1025,16 @@
 
       const data = await resp.json();
       sessionToken = data.token;
-
-      // *** NOVO: guardar master no front
-      masterPasswordPlain = masterPassword;
+      currentUserId = data.user_id;
+      currentUsername = data.username;
+      
+      // Usa a senha como master password para descriptografar no cliente
+      masterPasswordPlain = password;
 
       setStatus("Login realizado com sucesso.");
-      masterPasswordInput.value = "";
+      usernameInput.value = "";
+      passwordInput.value = "";
+      currentUsernameSpan.textContent = currentUsername;
       showApp();
       await loadPasswords();
     } catch (e) {
@@ -927,6 +1045,7 @@
     }
   });
 
+  // Logout
   btnLogout.addEventListener('click', async () => {
     if (!sessionToken) {
       showLogin();
@@ -942,7 +1061,10 @@
       console.warn("Erro no logout (ignorado):", e);
     } finally {
       sessionToken = null;
-      masterPasswordPlain = null; // *** NOVO: limpar da memória
+      masterPasswordPlain = null;
+      currentUserId = null;
+      currentUsername = null;
+      currentUsernameSpan.textContent = "";
       showLogin();
       setStatus("Sessão encerrada.");
     }

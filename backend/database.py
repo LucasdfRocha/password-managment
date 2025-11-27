@@ -5,7 +5,7 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Optional
-from models import PasswordEntry
+from models import PasswordEntry, User
 
 
 class DatabaseManager:
@@ -26,9 +26,23 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Tabela de usuários
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        
+        # Tabela de senhas com FK para user
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS password_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
                 site TEXT NOT NULL,
                 password_encrypted BLOB NOT NULL,
@@ -40,12 +54,88 @@ class DatabaseManager:
                 entropy REAL NOT NULL,
                 expiration_date TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """)
         
         conn.commit()
         conn.close()
+    
+    # ===== USER OPERATIONS =====
+    
+    def create_user(self, user: User) -> int:
+        """
+        Cria um novo usuário
+        
+        Args:
+            user: Objeto User
+            
+        Returns:
+            ID do usuário criado
+            
+        Raises:
+            sqlite3.IntegrityError: Se username ou email já existem
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO users (username, email, password_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                user.username,
+                user.email,
+                user.password_hash,
+                user.created_at.isoformat(),
+                user.updated_at.isoformat()
+            ))
+            
+            user_id = cursor.lastrowid
+            conn.commit()
+            return user_id
+        finally:
+            conn.close()
+    
+    def get_user_by_username(self, username: str) -> Optional[User]:
+        """Busca um usuário por username"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return self._row_to_user(row)
+        return None
+    
+    def get_user_by_id(self, user_id: int) -> Optional[User]:
+        """Busca um usuário por ID"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return self._row_to_user(row)
+        return None
+    
+    def _row_to_user(self, row) -> User:
+        """Converte uma linha do banco em User"""
+        return User(
+            id=row[0],
+            username=row[1],
+            email=row[2],
+            password_hash=row[3],
+            created_at=datetime.fromisoformat(row[4]),
+            updated_at=datetime.fromisoformat(row[5])
+        )
+    
+    # ===== PASSWORD OPERATIONS =====
     
     def create_entry(self, entry: PasswordEntry, encrypted_password: bytes) -> int:
         """
@@ -63,10 +153,11 @@ class DatabaseManager:
         
         cursor.execute("""
             INSERT INTO password_entries 
-            (title, site, password_encrypted, length, use_uppercase, use_lowercase, 
+            (user_id, title, site, password_encrypted, length, use_uppercase, use_lowercase, 
              use_digits, use_special, entropy, expiration_date, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
+            entry.user_id,
             entry.title,
             entry.site,
             encrypted_password,
@@ -86,12 +177,15 @@ class DatabaseManager:
         conn.close()
         return entry_id
     
-    def get_all_entries(self) -> List[PasswordEntry]:
-        """Retorna todas as entradas de senha"""
+    def get_all_entries_for_user(self, user_id: int) -> List[PasswordEntry]:
+        """Retorna todas as entradas de senha de um usuário"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM password_entries ORDER BY created_at DESC")
+        cursor.execute(
+            "SELECT * FROM password_entries WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,)
+        )
         rows = cursor.fetchall()
         conn.close()
         
@@ -175,17 +269,19 @@ class DatabaseManager:
         """Converte uma linha do banco em PasswordEntry"""
         return PasswordEntry(
             id=row[0],
-            title=row[1],
-            site=row[2],
-            password=row[3],
-            length=row[4],
-            use_uppercase=bool(row[5]),
-            use_lowercase=bool(row[6]),
-            use_digits=bool(row[7]),
-            use_special=bool(row[8]),
-            entropy=row[9],
-            expiration_date=datetime.fromisoformat(row[10]) if row[10] else None,
-            created_at=datetime.fromisoformat(row[11]),
-            updated_at=datetime.fromisoformat(row[12])
+            user_id=row[1],
+            title=row[2],
+            site=row[3],
+            password=row[4],
+            length=row[5],
+            use_uppercase=bool(row[6]),
+            use_lowercase=bool(row[7]),
+            use_digits=bool(row[8]),
+            use_special=bool(row[9]),
+            entropy=row[10],
+            expiration_date=datetime.fromisoformat(row[11]) if row[11] else None,
+            created_at=datetime.fromisoformat(row[12]),
+            updated_at=datetime.fromisoformat(row[13])
         )
+
 

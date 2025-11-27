@@ -111,3 +111,24 @@ class MessageResponse(BaseModel):
     message: str
     success: bool = True
 
+
+class UserRegister(BaseModel):
+    """Schema para registro de novo usuário"""
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., min_length=5, max_length=200)
+    password: str = Field(..., min_length=8)
+
+
+class UserLogin(BaseModel):
+    """Schema para login de usuário"""
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class LoginResponse(BaseModel):
+    """Schema de resposta de login"""
+    token: str
+    user_id: int
+    username: str
+    message: str
+

@@ -1,5 +1,0 @@
-# Dependências para o cliente GUI do Password Manager
-
-customtkinter==5.2.1
-requests==2.31.0
-pyperclip==1.8.2
